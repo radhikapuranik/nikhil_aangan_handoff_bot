@@ -6,10 +6,16 @@ import { PRICING_DEFLECTION } from "./scripts.ts";
 
 const ASKING_PRICE = [
   /\b(how much|what(?:'s| is| would| will)? (?:the )?(?:cost|price|rate|charge))/i,
-  /\b(cost|price|pricing|rates?|charges?|quote|quotation|ballpark|estimate|price list)\b/i,
+  /\b(costs?|prices?|pricing|rates?|charges?|quotes?|quotation|ballpark|estimates?|price list)\b/i,
   /\bper\s*(?:sq\.?\s*ft|square\s*f(?:oo|ee)t|sqft)\b/i,
   /\b(kitna|kitne|kharcha|kharch|daam|bhav)\b/i, // Hindi / Hinglish
   /\bhow expensive\b/i,
+  // Follow-ups that never repeat the word "cost": "just a rough range", "even a number".
+  /\bballpark\b/i,
+  /\brough(ly)?\s+(\w+\s+){0,2}(range|figure|number|idea|estimate|amount|cost|price)\b/i,
+  /\b(give|even|just|any|some|tell)\s+(me\s+)?(a\s+|an\s+|any\s+|some\s+)?(range|figure|number|estimate)\b/i,
+  /\b(starting|starts?)\s+(price|from|at)\b/i,
+  /\bwhat('?s| is) (it|that) (going to|gonna)?\s*(come to|run to|be)\b.*\?/i,
 ];
 
 // A caller *volunteering* their own budget is not a pricing question.

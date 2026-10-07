@@ -28,7 +28,7 @@ test("unknown Vaani rate stays null and marks totals incomplete, never zero", ()
 
 test("gemini cost converts tokens to INR", () => {
   const [i, o] = geminiCost(1_000_000, 1_000_000, { ...DEFAULT_RATES, usdToInr: 100 });
-  assert.equal(i.costInr, 10); assert.equal(o.costInr, 40);
+  assert.equal(i.costInr, 30); assert.equal(o.costInr, 250); // $0.30 and $2.50 per M tokens
 });
 
 async function logFixture(repo: MemoryRepository, id: string, startedAt: string, latency = 800) {

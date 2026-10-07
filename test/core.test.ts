@@ -28,7 +28,11 @@ test("pricing questions are detected however they are phrased", () => {
   for (const q of ["how much do you charge per sq ft for a 2bhk?", "what's your rate?", "can you give me a rough ballpark", "Can you email me the price list?", "kitna kharcha aayega", "even a range?? what would it cost"]) {
     assert.ok(isPricingQuestion(q), q);
   }
+  for (const q of ["just a rough range please", "even a number would help", "can you give me a ballpark", "any rough idea of the cost", "can't you give me even a rough range?", "what are your starting prices"])
+    assert.ok(isPricingQuestion(q), q);
   assert.ok(!isPricingQuestion("My budget is 20 lakh for the full home."));
+  for (const q of ["It's roughly 950 sq ft carpet.", "We have a range of rooms to do", "About 1,400 sq ft", "I'd like it done by March", "we moved in two years ago"])
+    assert.ok(!isPricingQuestion(q), "false positive: " + q);
   assert.ok(!isPricingQuestion("I have a 3BHK in Baner."));
 });
 
