@@ -71,7 +71,7 @@ export class MockCalendar implements Calendar {
       const dow = new Date(day.getTime() + 330 * 60000).getUTCDay();
       if (dow === 0 || dow === 6) continue;
       const hh = out.length % 2 === 0 ? 11 : 16;
-      const start = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hh - 5, 30)).toISOString();
+      const start = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hh - 6, 30)).toISOString();
       if (this.booked.some((b) => b.slot.start === start)) continue;
       out.push({ start, label: slotLabel(start) });
     }

@@ -7,6 +7,8 @@
   "engines": { "node": ">=22.18" },
   "scripts": {
     "test": "node --test test/*.test.ts",
-    "test:transcripts": "node src/scripts/run-transcripts.ts"
+    "test:transcripts": "node src/scripts/run-transcripts.ts",
+    "serve": "node src/scripts/serve.ts",
+    "simulate": "node src/scripts/simulate.ts"
   }
 }

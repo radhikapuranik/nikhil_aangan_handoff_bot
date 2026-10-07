@@ -32,6 +32,7 @@ export interface CallRecord {
   bookingRef: string | null;
   crmStatus: CrmStatus;
   crmDealId: string | null;
+  sessionState: unknown | null; // in-call state, so any server instance can resume the call
 }
 
 export type NewCall = Pick<CallRecord, "startedAt"> & Partial<Omit<CallRecord, "id" | "startedAt">>;

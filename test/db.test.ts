@@ -19,11 +19,12 @@ test("after-hours uses IST 10:00-19:00", () => {
 });
 
 test("unknown Vaani rate stays null and marks totals incomplete, never zero", () => {
-  const v = vaaniCost(240);
+  const v = vaaniCost(240, { ...DEFAULT_RATES, vaaniPerMinuteInr: null });
   assert.equal(v.costInr, null);
   assert.deepEqual(totalCost([v, ...geminiCost(1000, 200)]).incomplete, true);
   const known = vaaniCost(240, { ...DEFAULT_RATES, vaaniPerMinuteInr: 6 });
   assert.equal(known.units, 4); assert.equal(known.costInr, 24);
+  assert.equal(vaaniCost(60).costInr, 2.4); // documented 4 paise/sec
 });
 
 test("gemini cost converts tokens to INR", () => {

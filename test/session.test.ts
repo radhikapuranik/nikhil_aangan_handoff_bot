@@ -7,6 +7,7 @@ import type { LlmService } from "../src/integrations/types.ts";
 import type { CallFacts } from "../src/core/types.ts";
 import { DECLINE_SCRIPT, PRICING_DEFLECTION, ESCALATION_SCRIPT } from "../src/core/scripts.ts";
 import { FAQ_ANSWERS } from "../src/core/faq.ts";
+import { DEFAULT_RATES } from "../src/core/costs.ts";
 import { PHONE_FIXTURES } from "../src/fixtures/phone-transcripts.ts";
 
 const fixture = (id: string) => PHONE_FIXTURES.find((f) => f.id === id)!.facts as CallFacts;
@@ -30,7 +31,7 @@ function scripted(steps: CallFacts[], over: Partial<LlmService> = {}): LlmServic
 async function setup(steps: CallFacts[], over: Partial<LlmService> = {}) {
   const repo = new MemoryRepository();
   const calendar = new MockCalendar(), notifier = new MockNotifier(), crm = new MockCrm();
-  const deps: SessionDeps = { repo, llm: scripted(steps, over), calendar, notifier, crm, now: () => NOW };
+  const deps: SessionDeps = { repo, llm: scripted(steps, over), calendar, notifier, crm, now: () => NOW, rates: { ...DEFAULT_RATES, vaaniPerMinuteInr: null } };
   const { session, greeting } = await CallSession.start(deps, { providerCallId: "c1", startedAt: NOW.toISOString(), answerLatencyMs: 900, callerPhone: "+919800000001" });
   return { repo, calendar, notifier, crm, session, greeting };
 }

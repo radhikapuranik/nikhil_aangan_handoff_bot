@@ -35,6 +35,13 @@ const SAY = {
   tooLong: "Thank you for the details. Your designer will have everything you've told me and will be in touch. Thank you for calling Aangan Studio.",
 };
 
+interface Snapshot {
+  facts: CallFacts | null; asked: AskedCounts; decision: Decision | null; phase: Phase;
+  slots: Slot[]; slotRetries: number; callerTurns: number; pricingAsked: boolean;
+  usage: Usage; booking: { status: BookingStatus; time?: string; ref?: string };
+  calendarCalls: number; lastQuestionCriterion: keyof AskedCounts | null;
+}
+
 const ist = (d: Date) => new Date(d.getTime() + 330 * 60000);
 
 export class CallSession {
@@ -61,7 +68,41 @@ export class CallSession {
     const s = new CallSession(d, rec);
     const greeting = openingLine(ist(new Date(a.startedAt)).getUTCHours());
     s.say(greeting);
+    await s.persist();
     return { session: s, greeting };
+  }
+
+  // Rebuild a session from the database so any server instance can take the
+  // next turn of a call in progress.
+  static resume(d: SessionDeps, rec: CallRecord): CallSession {
+    const s = new CallSession(d, rec);
+    s.transcript = [...rec.transcript];
+    const st = rec.sessionState as Snapshot | null;
+    if (st) {
+      s.facts = st.facts; s.asked = st.asked; s.decision = st.decision; s.phase = st.phase;
+      s.slots = st.slots; s.slotRetries = st.slotRetries; s.callerTurns = st.callerTurns;
+      s.pricingAsked = st.pricingAsked; s.usage = st.usage; s.booking = st.booking;
+      s.calendarCalls = st.calendarCalls; s.lastQuestionCriterion = st.lastQuestionCriterion;
+    }
+    if (rec.verdict !== "in_progress") s.phase = "closed";
+    return s;
+  }
+
+  snapshot(): Snapshot {
+    return {
+      facts: this.facts, asked: this.asked, decision: this.decision, phase: this.phase,
+      slots: this.slots, slotRetries: this.slotRetries, callerTurns: this.callerTurns,
+      pricingAsked: this.pricingAsked, usage: this.usage, booking: this.booking,
+      calendarCalls: this.calendarCalls, lastQuestionCriterion: this.lastQuestionCriterion,
+    };
+  }
+
+  // Write the in-call state after every turn. If this server dies, the next
+  // turn (or the end-of-call webhook) resumes from here.
+  async persist() {
+    this.rec = await this.d.repo.updateCall(this.rec.id, {
+      transcript: this.transcript, facts: this.facts, sessionState: this.snapshot(),
+    });
   }
 
   get callId() { return this.rec.id; }
@@ -75,8 +116,14 @@ export class CallSession {
     return safe;
   }
 
-  // One caller utterance in, the agent's reply out.
+  // One caller utterance in, the agent's reply out. State is saved afterwards.
   async hear(utterance: string): Promise<{ say: string; end: boolean }> {
+    const r = await this.hearInner(utterance);
+    await this.persist();
+    return r;
+  }
+
+  private async hearInner(utterance: string): Promise<{ say: string; end: boolean }> {
     this.transcript.push({ speaker: "caller", text: utterance, at: this.now().toISOString() });
     this.callerTurns++;
     const reply = (text: string, end = false) => {
@@ -166,6 +213,8 @@ export class CallSession {
   // Called on hang-up (or once the agent has ended the call). Sends the
   // handoff, creates the deal, and writes the call row and cost ledger.
   async finish(a: { endedAt: string; durationSec: number }): Promise<CallRecord> {
+    // Idempotent: a second hang-up signal must not resend the handoff or deal.
+    if (this.rec.verdict !== "in_progress") return this.rec;
     const rates = this.d.rates ?? DEFAULT_RATES;
     const costs: CostEntry[] = [vaaniCost(a.durationSec, rates)];
     if (this.usage.inputTokens || this.usage.outputTokens) costs.push(...geminiCost(this.usage.inputTokens, this.usage.outputTokens, rates));

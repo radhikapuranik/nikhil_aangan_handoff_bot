@@ -120,3 +120,10 @@ test("createIntegrations: mocks exactly what has no keys, real once keys exist",
   assert.ok(!(some.calendar instanceof Object && some.mocked.includes("gemini")));
   assert.ok(createIntegrations({}).calendar instanceof MockCalendar);
 });
+
+test("mock calendar offers 11:00 and 16:00 IST on weekdays", async () => {
+  const slots = await new MockCalendar().findSlots(4, new Date("2026-10-07T05:00:00Z"));
+  const hm = slots.map((s) => new Date(s.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }));
+  assert.deepEqual(hm, ["11:00", "16:00", "11:00", "16:00"]);
+  for (const s of slots) assert.ok(![0, 6].includes(new Date(new Date(s.start).getTime() + 330 * 60000).getUTCDay()));
+});

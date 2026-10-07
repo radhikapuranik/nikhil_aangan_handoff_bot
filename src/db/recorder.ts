@@ -30,6 +30,7 @@ export interface Outcome {
   handoff?: { status: HandoffStatus };
   crm?: { status: CrmStatus; dealId?: string };
   costs: CostEntry[];
+  reasonOverride?: string; // when there is no decision to explain the outcome
 }
 
 // Every call is logged, whatever happened. Nothing is dropped silently.
@@ -53,7 +54,7 @@ export async function finishCall(repo: CallRepository, callId: string, o: Outcom
     callerPhone: o.facts?.phone ?? undefined,
     checks: d?.checks ?? null,
     verdict,
-    reasons: d?.reasons ?? (d ? [] : ["caller hung up before qualification finished"]),
+    reasons: d?.reasons ?? (d ? [] : [o.reasonOverride ?? "caller hung up before qualification finished"]),
     flags: d?.flags ?? [],
     pricingAsked: o.pricingAsked,
     handoffStatus: handoff,

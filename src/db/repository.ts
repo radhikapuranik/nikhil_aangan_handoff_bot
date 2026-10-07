@@ -9,6 +9,8 @@ export interface CallRepository {
   listCalls(range: DateRange): Promise<CallRecord[]>;
   listCosts(range: DateRange): Promise<StoredCost[]>;
   listFixedCosts(): Promise<FixedCost[]>;
+  // false if this provider event id was already stored (a webhook retry).
+  recordProviderEvent(e: { id: string; type: string; payload: unknown }): Promise<boolean>;
 }
 
 export const emptyCall = (c: NewCall): Omit<CallRecord, "id"> => ({
@@ -17,6 +19,6 @@ export const emptyCall = (c: NewCall): Omit<CallRecord, "id"> => ({
   facts: null, checks: null, verdict: "in_progress", reasons: [], flags: [],
   pricingAsked: false, handoffStatus: "not_applicable", handoffSentAt: null,
   bookingStatus: "not_applicable", bookingTime: null, bookingRef: null,
-  crmStatus: "not_applicable", crmDealId: null,
+  crmStatus: "not_applicable", crmDealId: null, sessionState: null,
   ...c,
 });

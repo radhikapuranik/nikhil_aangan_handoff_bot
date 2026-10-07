@@ -89,4 +89,12 @@ export class SupabaseRepository implements CallRepository {
     const rows = (await this.req("fixed_costs?select=*")) as Record<string, unknown>[];
     return rows.map((r) => fromRow<FixedCost>(r));
   }
+
+  async recordProviderEvent(e: { id: string; type: string; payload: unknown }) {
+    const rows = (await this.req("provider_events?on_conflict=id", {
+      method: "POST", body: JSON.stringify({ id: e.id, type: e.type, payload: e.payload }),
+      prefer: "resolution=ignore-duplicates,return=representation",
+    })) as unknown[];
+    return rows.length > 0;
+  }
 }

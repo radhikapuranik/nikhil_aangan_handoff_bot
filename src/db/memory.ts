@@ -8,6 +8,7 @@ export class MemoryRepository implements CallRepository {
   calls = new Map<string, CallRecord>();
   costs: StoredCost[] = [];
   fixed: FixedCost[] = [];
+  events = new Map<string, { type: string; payload: unknown }>();
 
   async createCall(c: NewCall) {
     if (c.providerCallId) {
@@ -40,4 +41,9 @@ export class MemoryRepository implements CallRepository {
     return this.costs.filter((c) => ids.has(c.callId));
   }
   async listFixedCosts() { return this.fixed; }
+  async recordProviderEvent(e: { id: string; type: string; payload: unknown }) {
+    if (this.events.has(e.id)) return false;
+    this.events.set(e.id, { type: e.type, payload: e.payload });
+    return true;
+  }
 }
