@@ -23,7 +23,8 @@ const isStr = (v: unknown): v is string => typeof v === "string" && v.length > 0
 // function or behind the local dev server.
 export function createHandler(d: SessionDeps, cfg: HttpConfig) {
   return async function handle(req: Request): Promise<Response> {
-    const path = new URL(req.url).pathname;
+    // On Vercel the functions live under /api/..., locally they are at the root.
+    const path = new URL(req.url).pathname.replace(/^\/api(?=\/)/, "");
     try {
       if (req.method === "GET" && path === "/health") return json(200, { ok: true });
       if (req.method !== "POST") return json(405, { error: "method not allowed" });

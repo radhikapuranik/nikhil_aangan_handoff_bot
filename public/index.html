@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aangan Phone Desk</title>
+<meta name="robots" content="noindex">
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f6f5f2; --surface-1: #fcfcfb; --line: #e4e2dc; --grid: #ecebe6;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #6f6e69;
+    --accent: #2a78d6;               /* categorical slot 1 */
+    --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --neutral: #b9b7b0;              /* de-emphasis gray / "other" */
+    --good: #006300; --warn-bg: #fdf3dc; --warn-ink: #6b4a00; --crit: #b42f2f; --crit-bg: #fbe9e9;
+    --ramp: #3987e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --line: #2f2f2c; --grid: #2a2a27;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #9b9a90;
+      --accent: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+      --neutral: #5c5b55;
+      --good: #4cc24c; --warn-bg: #2d2410; --warn-ink: #f0c869; --crit: #ec7a7a; --crit-bg: #2e1717;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --line: #2f2f2c; --grid: #2a2a27;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #9b9a90;
+    --accent: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --neutral: #5c5b55;
+    --good: #4cc24c; --warn-bg: #2d2410; --warn-ink: #f0c869; --crit: #ec7a7a; --crit-bg: #2e1717;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 650; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface-1); }
+  .seg button { border: 0; background: transparent; color: var(--text-secondary); padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  input[type=date], input[type=password] { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; }
+  .banner.warn { background: var(--warn-bg); color: var(--warn-ink); }
+  .banner.crit { background: var(--crit-bg); color: var(--crit); }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .kpi .label { color: var(--text-secondary); font-size: 13px; }
+  .kpi .value { font-size: 40px; font-weight: 650; line-height: 1.1; margin: 6px 0 4px; font-variant-numeric: tabular-nums; }
+  .kpi .note { color: var(--text-secondary); font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  h2 { font-size: 15px; margin: 0 0 2px; font-weight: 650; }
+  .hint { color: var(--text-secondary); font-size: 13px; margin: 0 0 14px; }
+  .legend { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 6px; }
+  .legend li { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 10px; align-items: center; font-size: 14px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .muted { color: var(--text-secondary); }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .axis text { fill: var(--text-muted); font-size: 11px; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .tip { position: fixed; pointer-events: none; background: var(--text-primary); color: var(--surface-1); padding: 6px 9px; border-radius: 6px; font-size: 12px; line-height: 1.35; z-index: 10; opacity: 0; transition: opacity .08s; max-width: 240px; }
+  .tip.on { opacity: 1; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  td.num, th.num { text-align: right; }
+  .tablewrap { overflow-x: auto; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); white-space: nowrap; }
+  .pill.bad { color: var(--crit); border-color: var(--crit); }
+  .pill.ok { color: var(--good); border-color: var(--good); }
+  .flag { color: var(--warn-ink); font-size: 12px; }
+  .full { margin-bottom: 12px; }
+  .costrow { display: grid; grid-template-columns: 150px 1fr 100px; gap: 10px; align-items: center; margin: 8px 0; font-size: 14px; }
+  .bar { height: 10px; background: var(--grid); border-radius: 5px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--ramp); border-radius: 5px; }
+  #login { position: fixed; inset: 0; background: var(--surface-0); display: none; place-items: center; z-index: 20; }
+  #login form { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 24px; width: min(340px, 90vw); display: grid; gap: 12px; }
+  #login button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px; font: inherit; cursor: pointer; }
+  #err { color: var(--crit); font-size: 13px; min-height: 18px; }
+  @media (max-width: 860px) { .kpis { grid-template-columns: repeat(2, 1fr); } .grid2 { grid-template-columns: 1fr; } }
+  @media (max-width: 480px) { .kpis { grid-template-columns: 1fr; } .kpi .value { font-size: 34px; } .costrow { grid-template-columns: 90px 1fr 70px; } }
+</style>
+</head>
+<body>
+<div id="login"><form id="loginForm"><div><strong>Aangan Phone Desk</strong><div class="sub">Enter the dashboard password</div></div>
+  <input type="password" id="pw" autocomplete="current-password" aria-label="Dashboard password" required>
+  <div id="err" role="alert"></div><button type="submit">Open dashboard</button></form></div>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Aangan Studio · phone enquiries</h1>
+      <div class="sub" id="rangeLabel">Loading…</div>
+    </div>
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Date range" id="presets">
+        <button data-days="7" aria-pressed="false">7 days</button>
+        <button data-days="30" aria-pressed="true">30 days</button>
+        <button data-days="90" aria-pressed="false">90 days</button>
+      </div>
+      <label class="muted">From <input type="date" id="from"></label>
+      <label class="muted">To <input type="date" id="to"></label>
+    </div>
+  </header>
+
+  <div id="banners"></div>
+  <section class="kpis" id="kpis" aria-label="Key numbers"></section>
+
+  <div class="grid2">
+    <section class="card" aria-labelledby="h-out">
+      <h2 id="h-out">What happened to each call</h2>
+      <p class="hint">Every call is logged, whatever the outcome.</p>
+      <div id="outcomeChart"></div>
+      <ul class="legend" id="outcomeLegend"></ul>
+    </section>
+    <section class="card" aria-labelledby="h-day">
+      <h2 id="h-day">Enquiries per day</h2>
+      <p class="hint">The highlighted part arrived outside 10am–7pm, when no one used to pick up.</p>
+      <div id="dayChart"></div>
+      <details><summary>Show as table</summary><div class="tablewrap"><table id="dayTable"></table></div></details>
+    </section>
+  </div>
+
+  <section class="card full" aria-labelledby="h-cost">
+    <h2 id="h-cost">What the system costs to run</h2>
+    <p class="hint" id="costHint"></p>
+    <div id="costRows"></div>
+  </section>
+
+  <section class="card full" id="attentionCard" aria-labelledby="h-att" hidden>
+    <h2 id="h-att">Needs a person</h2>
+    <p class="hint">A handoff, booking or CRM step did not complete, or an urgent callback is waiting.</p>
+    <div class="tablewrap"><table id="attTable"></table></div>
+  </section>
+
+  <section class="card full" aria-labelledby="h-rec">
+    <h2 id="h-rec">Recent calls</h2>
+    <p class="hint">Phone numbers are masked here.</p>
+    <div class="tablewrap"><table id="recTable"></table></div>
+  </section>
+</div>
+<div class="tip" id="tip" role="status"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+// All caller-derived text (names, reasons, flags) goes through textContent, never innerHTML.
+const el = (tag, props = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v; else if (k === "style") e.setAttribute("style", v);
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return e;
+};
+const svgEl = (tag, attrs = {}) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+const inr = (n) => n == null ? "—" : "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: n < 100 ? 2 : 0 });
+const pct = (a, b) => b ? Math.round((a / b) * 100) + "%" : "—";
+const ms = (n) => n == null ? "—" : n < 1000 ? Math.round(n) + " ms" : (n / 1000).toFixed(1) + " s";
+const OUTCOMES = [
+  { key: "qualified", label: "Qualified, sent to a designer", color: "var(--accent)" },
+  { key: "declined", label: "Declined politely", color: "var(--series-2)" },
+  { key: "deferred", label: "Timeline too short, offered later start", color: "var(--series-3)" },
+  { key: "escalated", label: "Existing client, urgent callback", color: "var(--series-4)" },
+  { key: "abandoned", label: "Hung up or dropped", color: "var(--neutral)" },
+];
+const tip = $("tip");
+const showTip = (e, html) => { tip.textContent = ""; for (const l of html) tip.append(el("div", {}, l)); tip.classList.add("on"); const w = tip.offsetWidth; tip.style.left = Math.min(innerWidth - w - 8, e.clientX + 12) + "px"; tip.style.top = e.clientY + 14 + "px"; };
+const hideTip = () => tip.classList.remove("on");
+
+let password = sessionStorage.getItem("pw") || "";
+let range = { days: 30, from: null, to: null };
+const dayStr = (d) => new Date(d.getTime() + 330 * 60000).toISOString().slice(0, 10);
+
+async function load() {
+  const today = new Date();
+  const to = range.to || dayStr(today);
+  const from = range.from || dayStr(new Date(today.getTime() - (range.days - 1) * 86400000));
+  $("from").value = from; $("to").value = to;
+  const res = await fetch(`/api/dashboard?from=${from}&to=${to}`, { headers: { Authorization: "Bearer " + password } });
+  if (res.status === 401) { $("login").style.display = "grid"; $("pw").focus(); return; }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { $("banners").replaceChildren(el("div", { class: "banner crit" }, body.error || "Could not load data")); return; }
+  $("login").style.display = "none";
+  render(body);
+}
+
+function render(d) {
+  const s = d.summary;
+  $("rangeLabel").textContent = `${d.daily[0]?.date ?? ""} to ${d.daily.at(-1)?.date ?? ""} (IST)`;
+
+  const banners = [];
+  if (d.demo) banners.push(el("div", { class: "banner warn" }, "Sample data. These are not real calls. Connect Supabase to see live numbers."));
+  if (s.cost.incomplete) banners.push(el("div", { class: "banner warn" }, "The cost total is incomplete, so the true cost is higher than shown: " + s.cost.incompleteReasons.join("; ") + "."));
+  if (d.attention.length) banners.push(el("div", { class: "banner crit" }, `${d.attention.length} call${d.attention.length > 1 ? "s" : ""} need a person. See "Needs a person" below.`));
+  $("banners").replaceChildren(...banners);
+
+  const q = s.verdicts.qualified || 0;
+  const kpi = (label, value, note) => el("div", { class: "card kpi" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  $("kpis").replaceChildren(
+    kpi("Enquiries handled", s.totalCalls, `${s.afterHoursCalls} (${pct(s.afterHoursCalls, s.totalCalls)}) came after hours`),
+    kpi("Median time to answer", ms(s.latency.medianMs), s.latency.under5MinPct == null ? "No calls yet" : `${s.latency.under5MinPct}% within 5 minutes · slowest ${ms(s.latency.maxMs)}`),
+    kpi("Consultations booked", s.consultationsBooked, q ? `${pct(s.consultationsBooked, q)} of ${q} qualified calls` : "No qualified calls yet"),
+    kpi("System cost", inr(s.cost.totalInr), s.totalCalls ? `${inr(s.cost.perCallAvgInr)} per call` + (q ? ` · ${inr(Math.round(s.cost.totalInr / q * 100) / 100)} per qualified lead` : "") : "—"),
+  );
+
+  drawOutcomes(s);
+  drawDays(d.daily);
+  drawCost(s);
+  drawTables(d);
+}
+
+function drawOutcomes(s) {
+  const total = s.totalCalls;
+  const W = 520, H = 36, GAP = 2;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Outcome split: " + OUTCOMES.map((o) => `${o.label} ${s.verdicts[o.key] || 0}`).join(", ") });
+  let x = 0;
+  const live = OUTCOMES.filter((o) => (s.verdicts[o.key] || 0) > 0);
+  for (const o of live) {
+    const n = s.verdicts[o.key];
+    const w = Math.max(2, (n / total) * W - (live.length > 1 ? GAP : 0));
+    const r = svgEl("rect", { x, y: 0, width: w, height: H, rx: 4, fill: o.color });
+    r.addEventListener("mousemove", (e) => showTip(e, [o.label, `${n} calls (${pct(n, total)})`]));
+    r.addEventListener("mouseleave", hideTip);
+    svg.append(r); x += w + GAP;
+  }
+  $("outcomeChart").replaceChildren(total ? svg : el("div", { class: "muted" }, "No calls in this period."));
+  $("outcomeLegend").replaceChildren(...OUTCOMES.map((o) => {
+    const n = s.verdicts[o.key] || 0;
+    return el("li", {}, el("span", { class: "sw", style: `background:${o.color}` }), el("span", {}, o.label), el("span", { class: "num" }, n), el("span", { class: "num muted" }, pct(n, total)));
+  }));
+}
+
+function drawDays(daily) {
+  const W = 520, H = 190, L = 28, B = 22, T = 8, R = 4;
+  const max = Math.max(1, ...daily.map((x) => x.inHours + x.afterHours));
+  const top = Math.ceil(max / 2) * 2 || 2;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Enquiries per day, split into in-hours and after-hours" });
+  const ay = svgEl("g", { class: "axis" });
+  for (const v of [0, top / 2, top]) {
+    const y = T + (H - T - B) * (1 - v / top);
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: y, y2: y, class: "gridline" }));
+    const t = svgEl("text", { x: L - 6, y: y + 4, "text-anchor": "end" }); t.textContent = v; ay.append(t);
+  }
+  const slot = (W - L - R) / daily.length, bw = Math.max(2, Math.min(18, slot * 0.7));
+  daily.forEach((day, i) => {
+    const cx = L + slot * i + slot / 2, base = H - B, h = (H - T - B) / top;
+    const inH = day.inHours * h, aft = day.afterHours * h;
+    const g = svgEl("g");
+    // In-hours is the quiet gray base; after-hours is the accent, so the eye lands on it.
+    if (inH > 0) g.append(svgEl("rect", { x: cx - bw / 2, y: base - inH, width: bw, height: Math.max(0, inH - (aft > 0 ? 2 : 0)), rx: 2, fill: "var(--neutral)" }));
+    if (aft > 0) g.append(svgEl("rect", { x: cx - bw / 2, y: base - inH - aft, width: bw, height: aft, rx: 2, fill: "var(--accent)" }));
+    const hit = svgEl("rect", { x: cx - slot / 2, y: T, width: slot, height: H - T - B, fill: "transparent" });
+    hit.addEventListener("mousemove", (e) => showTip(e, [day.date, `${day.inHours + day.afterHours} calls`, `${day.afterHours} after hours`]));
+    hit.addEventListener("mouseleave", hideTip);
+    g.append(hit); svg.append(g);
+    if (i === 0 || i === daily.length - 1 || i % Math.ceil(daily.length / 6) === 0) {
+      const t = svgEl("text", { x: cx, y: H - 6, "text-anchor": "middle" }); t.textContent = day.date.slice(5); ay.append(t);
+    }
+  });
+  svg.append(ay);
+  const key = el("div", { class: "muted", style: "font-size:13px;margin-top:8px;display:flex;gap:16px" },
+    el("span", {}, el("span", { class: "sw", style: "display:inline-block;background:var(--neutral);margin-right:6px;vertical-align:-1px" }), "10am–7pm"),
+    el("span", {}, el("span", { class: "sw", style: "display:inline-block;background:var(--accent);margin-right:6px;vertical-align:-1px" }), "After hours"));
+  $("dayChart").replaceChildren(svg, key);
+  const t = $("dayTable"); t.replaceChildren(el("tr", {}, el("th", {}, "Day"), el("th", { class: "num" }, "10am–7pm"), el("th", { class: "num" }, "After hours")),
+    ...daily.map((x) => el("tr", {}, el("td", {}, x.date), el("td", { class: "num" }, x.inHours), el("td", { class: "num" }, x.afterHours))));
+}
+
+const SERVICE_NAMES = { vaani: "Voice (Vaani)", gemini: "AI model (Gemini)", calcom: "Calendar (Cal.com)", telegram: "Handoff (Telegram)", hubspot: "CRM (HubSpot)" };
+function drawCost(s) {
+  const c = s.cost;
+  const rows = Object.entries(c.byService).map(([k, v]) => ({ name: SERVICE_NAMES[k] || k, v, unknown: false }));
+  // "No fixed fees recorded" or "fee unknown" is not ₹0. Say so instead of drawing an empty bar.
+  const fixedUnknown = c.incompleteReasons.some((r) => r.includes("fixed") || r.includes("fees"));
+  rows.sort((a, b) => b.v - a.v);
+  rows.push({ name: "Fixed fees (pro-rated)", v: c.fixedInr, unknown: fixedUnknown && c.fixedInr === 0 });
+  const max = Math.max(...rows.map((r) => r.v), 0.01);
+  $("costHint").textContent = `${inr(c.totalInr)} in total for ${s.totalCalls} calls. Free-tier services show ₹0 because they cost nothing per call.` + (c.incomplete ? " Unknown or unrecorded fees are not included." : "");
+  $("costRows").replaceChildren(...rows.map((r) => el("div", { class: "costrow" }, el("span", {}, r.name),
+    el("div", { class: "bar", role: "img", "aria-label": r.unknown ? `${r.name}: not recorded` : `${r.name}: ${inr(r.v)}` }, r.unknown ? null : el("i", { style: `width:${Math.max(r.v ? 2 : 0, (r.v / max) * 100)}%` })),
+    el("span", { class: r.unknown ? "num flag" : "num" }, r.unknown ? "not recorded" : inr(r.v)))));
+}
+
+const VERDICT_LABEL = Object.fromEntries(OUTCOMES.map((o) => [o.key, o.label.split(",")[0]]));
+const ok = (t) => el("span", { class: "pill ok" }, t), bad = (t) => el("span", { class: "pill bad" }, t), plain = (t) => el("span", { class: "pill" }, t);
+const when = (iso) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
+function statusCell(c) {
+  const out = [];
+  if (c.handoffStatus === "sent") out.push(ok("handoff sent")); else if (c.handoffStatus === "failed") out.push(bad("handoff failed")); else if (c.handoffStatus === "escalation_pending") out.push(bad("callback due"));
+  else if (c.handoffStatus === "pending") out.push(bad("handoff pending"));
+  if (c.bookingStatus === "booked") out.push(ok("booked " + when(c.bookingTime))); else if (c.bookingStatus === "failed") out.push(bad("booking failed")); else if (c.bookingStatus === "declined_by_caller") out.push(plain("no booking"));
+  if (c.crmStatus === "created") out.push(plain("in CRM")); else if (c.crmStatus === "failed") out.push(bad("CRM failed"));
+  return el("div", { style: "display:flex;gap:4px;flex-wrap:wrap" }, ...out);
+}
+function callTable(table, calls) {
+  table.replaceChildren(el("tr", {}, ...["When", "Caller", "Outcome", "Status", "Notes", "Answered in", "Cost"].map((h, i) => el("th", { class: i >= 5 ? "num" : "" }, h))),
+    ...calls.map((c) => el("tr", {},
+      el("td", {}, when(c.startedAt), c.afterHours ? el("div", { class: "muted", style: "font-size:12px" }, "after hours") : null),
+      el("td", {}, c.name || "—", el("div", { class: "muted", style: "font-size:12px" }, c.phoneMasked || "")),
+      el("td", {}, VERDICT_LABEL[c.verdict] || c.verdict),
+      el("td", {}, statusCell(c)),
+      el("td", {}, ...[...c.reasons.map((r) => el("div", { class: "muted" }, r)), ...c.flags.map((f) => el("div", { class: "flag" }, "⚠ " + f)), c.pricingAsked ? el("div", { class: "muted" }, "asked about price") : null]),
+      el("td", { class: "num" }, ms(c.answerLatencyMs)),
+      el("td", { class: "num" }, inr(c.costInr)))));
+}
+function drawTables(d) {
+  $("attentionCard").hidden = d.attention.length === 0;
+  callTable($("attTable"), d.attention);
+  callTable($("recTable"), d.recent);
+  if (!d.recent.length) $("recTable").replaceChildren(el("tr", {}, el("td", { class: "muted" }, "No calls in this period.")));
+}
+
+$("presets").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  range = { days: Number(b.dataset.days), from: null, to: null };
+  for (const x of $("presets").children) x.setAttribute("aria-pressed", String(x === b));
+  load();
+});
+for (const id of ["from", "to"]) $(id).addEventListener("change", () => {
+  range = { days: 0, from: $("from").value, to: $("to").value };
+  for (const x of $("presets").children) x.setAttribute("aria-pressed", "false");
+  if (range.from && range.to) load();
+});
+$("loginForm").addEventListener("submit", (e) => {
+  e.preventDefault(); password = $("pw").value;
+  try { sessionStorage.setItem("pw", password); } catch {}
+  $("err").textContent = ""; load().then(() => { if ($("login").style.display === "grid") $("err").textContent = "That password was not accepted."; });
+});
+try { password = sessionStorage.getItem("pw") || ""; } catch {}
+load();
+</script>
+</body>
+</html>

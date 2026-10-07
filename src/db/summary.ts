@@ -13,7 +13,8 @@ export interface Summary {
     fixedInr: number;        // pro-rated monthly charges
     totalInr: number;
     perCallAvgInr: number | null;
-    incomplete: boolean;     // true if any rate was unknown
+    incomplete: boolean;     // true if anything is unknown or unrecorded
+    incompleteReasons: string[];
     byService: Record<string, number>;
   };
 }
@@ -47,6 +48,12 @@ export function summarise(calls: CallRecord[], costs: StoredCost[], fixed: Fixed
   const byService: Record<string, number> = {};
   for (const c of costs) if (c.costInr !== null) byService[c.service] = Math.round(((byService[c.service] ?? 0) + c.costInr) * 10000) / 10000;
 
+  // No fixed-fee rows is not the same as zero: number rental and plan fees
+  // exist, they just have not been entered yet.
+  const reasons: string[] = [];
+  if (variable.incomplete) reasons.push("a per-call rate is unknown");
+  if (fixed.length === 0) reasons.push("no fixed monthly fees recorded (phone number rental, plan fees)");
+  else if (fx.incomplete) reasons.push("a fixed monthly fee is unknown");
   const total = Math.round((variable.inr + fx.inr) * 100) / 100;
   return {
     totalCalls: calls.length,
@@ -61,7 +68,7 @@ export function summarise(calls: CallRecord[], costs: StoredCost[], fixed: Fixed
     cost: {
       perCallInr: variable.inr, fixedInr: fx.inr, totalInr: total,
       perCallAvgInr: calls.length ? Math.round((total / calls.length) * 100) / 100 : null,
-      incomplete: variable.incomplete || fx.incomplete,
+      incomplete: reasons.length > 0, incompleteReasons: reasons,
       byService,
     },
   };

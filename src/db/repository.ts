@@ -9,6 +9,7 @@ export interface CallRepository {
   listCalls(range: DateRange): Promise<CallRecord[]>;
   listCosts(range: DateRange): Promise<StoredCost[]>;
   listFixedCosts(): Promise<FixedCost[]>;
+  addFixedCost(f: FixedCost): Promise<void>;
   // false if this provider event id was already stored (a webhook retry).
   recordProviderEvent(e: { id: string; type: string; payload: unknown }): Promise<boolean>;
 }

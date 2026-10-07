@@ -75,7 +75,8 @@ test("summary: counts, latency, after-hours, booked, pricing, cost", async () =>
   await logFixture(repo, "T08", "2026-09-09T17:17:00Z", 1100);  // after hours (facts null -> abandoned)
   const rec = [...repo.calls.values()][0];
   await repo.updateCall(rec.id, { bookingStatus: "booked" });
-  const s = summarise(await repo.listCalls(RANGE), await repo.listCosts(RANGE), [], RANGE);
+  const fx = [{ service: "number", monthlyInr: 0, activeFrom: "2026-01-01", activeTo: null }];
+  const s = summarise(await repo.listCalls(RANGE), await repo.listCosts(RANGE), fx, RANGE);
   assert.equal(s.totalCalls, 3); assert.equal(s.afterHoursCalls, 1);
   assert.equal(s.consultationsBooked, 1); assert.equal(s.pricingQuestions, 1);
   assert.equal(s.latency.medianMs, 900); assert.equal(s.latency.under5MinPct, 100);
@@ -92,6 +93,12 @@ test("fixed monthly costs are pro-rated; unknown ones mark the total incomplete"
   const u = summarise([], [], [{ service: "plan", monthlyInr: null, activeFrom: "2026-08-01", activeTo: null }], range);
   assert.equal(u.cost.incomplete, true);
   void repo;
+});
+
+test("no fixed-fee rows is reported as incomplete, never as zero", () => {
+  const s = summarise([], [], [], RANGE);
+  assert.equal(s.cost.incomplete, true);
+  assert.ok(s.cost.incompleteReasons[0].includes("no fixed monthly fees"));
 });
 
 test("cost-free services are recorded as explicit zero rows", () => {
