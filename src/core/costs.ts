@@ -6,7 +6,7 @@
 export interface Rates {
   usdToInr: number;
   vaaniPerMinuteInr: number | null; // unknown until Vaani pricing is confirmed
-  geminiInputPerMTokUsd: number;    // ASSUMPTION: Gemini 2.0 Flash-class price
+  geminiInputPerMTokUsd: number;    // gemini-3.5-flash-lite, ai.google.dev/gemini-api/docs/pricing
   geminiOutputPerMTokUsd: number;
   // Services on free tiers cost nothing per call.
   calcomPerBookingInr: number;
@@ -17,8 +17,8 @@ export interface Rates {
 export const DEFAULT_RATES: Rates = {
   usdToInr: 88, // ASSUMPTION
   vaaniPerMinuteInr: null,
-  geminiInputPerMTokUsd: 0.1,
-  geminiOutputPerMTokUsd: 0.4,
+  geminiInputPerMTokUsd: 0.3,
+  geminiOutputPerMTokUsd: 2.5,
   calcomPerBookingInr: 0,
   telegramPerMessageInr: 0,
   hubspotPerDealInr: 0,
