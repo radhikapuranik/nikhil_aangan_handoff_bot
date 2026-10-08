@@ -126,7 +126,7 @@ test("webhook: a call that never reached the brain is still logged, with its cos
   await hook(handle, { id: "evt_u", type: "call.completed", created: 1790000000, data: { call_id: "unseen-1", duration_sec: 120 } });
   const rec = (await repo.getByProviderCallId("unseen-1"))!;
   assert.equal(rec.verdict, "abandoned"); assert.ok(rec.reasons[0].includes("no transcript and no tool activity"));
-  assert.equal(repo.costs.find((c) => c.service === "vaani")!.costInr, 4.8); // 2 min x Rs 2.40
+  assert.equal(repo.costs.find((c) => c.service === "vaani")!.costInr, 11.16); // 2 min x Rs 5.58
 });
 
 test("webhook: call.completed finishes an in-progress call and sends its handoff", async () => {

@@ -277,10 +277,9 @@ var hasDatabase = (env) => Boolean(env.DATABASE_URL || env.SUPABASE_URL && env.S
 var DEFAULT_RATES = {
   usdToInr: 88,
   // ASSUMPTION
-  // 4 paise/sec voicebot = Rs 2.40/min, from vaanilabs.in/docs/api. Their pricing
-  // page says pricing is sales-led, and Twilio telephony is billed separately,
-  // so confirm before trusting the dashboard total.
-  vaaniPerMinuteInr: 2.4,
+  // Rs 5.58/min is what the Vaani dashboard shows as the estimate for this agent (app.vaanivoice.ai).
+  // It may exclude telephony and can change with the agent's voice and model choices; confirm on the first bills.
+  vaaniPerMinuteInr: 5.58,
   geminiInputPerMTokUsd: 0.3,
   geminiOutputPerMTokUsd: 2.5,
   calcomPerBookingInr: 0,
@@ -295,7 +294,7 @@ function vaaniCost(durationSec, r = DEFAULT_RATES) {
     units: round(minutes),
     unit: "minute",
     costInr: r.vaaniPerMinuteInr === null ? null : round(minutes * r.vaaniPerMinuteInr),
-    rateNote: r.vaaniPerMinuteInr === null ? "Vaani rate not yet confirmed" : "documented self-serve rate; sales-led pricing may differ; excludes Twilio telephony"
+    rateNote: r.vaaniPerMinuteInr === null ? "Vaani rate not yet confirmed" : "estimate shown in the Vaani dashboard for this agent; may exclude telephony"
   };
 }
 function geminiCost(inputTokens, outputTokens, r = DEFAULT_RATES) {

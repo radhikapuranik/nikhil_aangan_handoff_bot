@@ -63,9 +63,11 @@ export function parseTranscript(data: Record<string, unknown>): TranscriptTurn[]
       push(o.role ?? o.speaker ?? o.from ?? o.sender, o.text ?? o.content ?? o.message ?? o.utterance);
     }
   } else if (typeof raw === "string") {
+    // "[2026-07-24 13:33:01] AGENT: Hello" or "USER: Hi", with wrapped lines continuing the last turn.
     for (const line of raw.split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Za-z ]{2,12}):\s*(.+)$/);
-      if (m) push(m[1], m[2]);
+      const m = line.match(/^\s*(?:\[[^\]]*\]\s*)?([A-Za-z ]{2,12}):\s*(.*)$/);
+      if (m && (AGENT_ROLES.has(m[1].toLowerCase().trim()) || CALLER_ROLES.has(m[1].toLowerCase().trim()))) push(m[1], m[2]);
+      else if (out.length && line.trim()) out[out.length - 1].text += " " + line.trim();
     }
   }
   return out.length ? out : null;
@@ -73,7 +75,15 @@ export function parseTranscript(data: Record<string, unknown>): TranscriptTurn[]
 
 export type WebhookResult = { status: number; body: Record<string, unknown> };
 
-export async function handleVaaniWebhook(d: SessionDeps, rawBody: string, signature: string | null, secret: string): Promise<WebhookResult> {
+export interface WebhookOpts { vaaniApiKey?: string; fetchImpl?: typeof fetch }
+
+// app.vaanivoice.ai posts {event, call_id, timestamp, data}. It has no documented signature,
+// so instead of trusting the payload we ask Vaani's own API whether the call is real.
+export async function handleVaaniWebhook(d: SessionDeps, rawBody: string, signature: string | null, secret: string, opts: WebhookOpts = {}): Promise<WebhookResult> {
+  let peek: Record<string, unknown> | null = null;
+  try { const j = JSON.parse(rawBody); peek = j && typeof j === "object" ? (j as Record<string, unknown>) : null; } catch { /* handled below */ }
+  if (peek && typeof peek.event === "string") return handleNativeEvent(d, peek, opts);
+
   if (!verifySignature(rawBody, signature, secret)) return { status: 401, body: { error: "bad signature" } };
 
   let env: { id?: unknown; type?: unknown; created?: unknown; data?: unknown };
@@ -116,5 +126,49 @@ export async function handleVaaniWebhook(d: SessionDeps, rawBody: string, signat
   if (failed && done.reasons.every((r) => !r.includes("pipeline"))) {
     await d.repo.updateCall(done.id, { reasons: [...done.reasons, "voice platform reported a pipeline error mid-call"] });
   }
+  return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict, transcript: Boolean(transcript) } };
+}
+
+
+// ---- app.vaanivoice.ai native events ------------------------------------------------------
+
+export const VAANI_API = "https://api.vaanivoice.ai";
+
+// Ask Vaani whether this call exists, and get its transcript from the source.
+export async function fetchCallDetails(callId: string, apiKey: string, f: typeof fetch = fetch): Promise<{ exists: boolean; transcription: string | null }> {
+  const res = await f(`${VAANI_API}/api/call_details/${encodeURIComponent(callId)}`, { headers: { "X-API-Key": apiKey } });
+  if (res.status === 404) return { exists: false, transcription: null };
+  if (!res.ok) throw new Error(`Vaani call_details -> ${res.status}`);
+  const j = (await res.json()) as Record<string, unknown>;
+  const t = typeof j.transcription === "string" ? j.transcription : null;
+  // Before processing finishes Vaani returns a placeholder sentence instead of a transcript.
+  return { exists: true, transcription: t && !/not available for further evaluations/i.test(t) ? t : null };
+}
+
+async function handleNativeEvent(d: SessionDeps, body: Record<string, unknown>, opts: WebhookOpts): Promise<WebhookResult> {
+  if (body.event !== "call_postprocessing") return { status: 200, body: { handled: false, reason: `ignored event ${String(body.event)}` } };
+  const callId = typeof body.call_id === "string" && body.call_id ? body.call_id : null;
+  if (!callId) return { status: 400, body: { error: "call_id is required" } };
+  if (!opts.vaaniApiKey) return { status: 503, body: { error: "VAANI_API_KEY is not configured, so this event cannot be verified" } };
+
+  let details;
+  try { details = await fetchCallDetails(callId, opts.vaaniApiKey, opts.fetchImpl); }
+  catch { return { status: 502, body: { error: "could not verify the call with Vaani; will accept a retry" } }; }
+  if (!details.exists) return { status: 404, body: { error: "unknown call" } }; // a forged or mistyped call id
+
+  // From here the call is known to be real. Apply it once.
+  const fresh = await d.repo.recordProviderEvent({ id: `call_postprocessing:${callId}`, type: "call_postprocessing", payload: { call_id: callId } });
+  if (!fresh) return { status: 200, body: { duplicate: true } };
+
+  const data = (body.data && typeof body.data === "object" ? body.data : {}) as Record<string, unknown>;
+  const transcript = parseTranscript({ transcript: details.transcription ?? data.transcript });
+  const ms = typeof data.call_duration === "number" ? data.call_duration : Number(data.call_duration);
+  const durationSec = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0; // this event reports milliseconds
+  const endedMs = typeof body.timestamp === "string" && !Number.isNaN(Date.parse(body.timestamp)) ? Date.parse(body.timestamp) : Date.now();
+  const rec = await d.repo.getByProviderCallId(callId);
+  const done = await finalizeCall(d, {
+    providerCallId: callId, startedAt: rec?.startedAt ?? new Date(endedMs - durationSec * 1000).toISOString(),
+    endedAt: new Date(endedMs).toISOString(), durationSec, transcript,
+  });
   return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict, transcript: Boolean(transcript) } };
 }

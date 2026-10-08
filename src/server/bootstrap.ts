@@ -15,7 +15,7 @@ export function brainHandler(env: Env = process.env) {
   return once("brain", () => {
     const integ = createIntegrations(env);
     const deps: SessionDeps = { ...integ, repo: createRepository(env) };
-    return createHandler(deps, { brainSecret: env.BRAIN_SHARED_SECRET ?? "", vaaniWebhookSecret: env.VAANI_WEBHOOK_SECRET ?? "" });
+    return createHandler(deps, { brainSecret: env.BRAIN_SHARED_SECRET ?? "", vaaniWebhookSecret: env.VAANI_WEBHOOK_SECRET ?? "", vaaniApiKey: env.VAANI_API_KEY });
   });
 }
 

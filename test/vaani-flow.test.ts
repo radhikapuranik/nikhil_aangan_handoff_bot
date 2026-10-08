@@ -189,3 +189,71 @@ test("one desk tool: action picks qualify, availability or book; unknown action 
   const bad = await (await post(handle, "/tools/desk", { action: "dance" })).json() as any;
   assert.equal(bad.error, true);
 });
+
+// ---- the real app.vaanivoice.ai webhook: {event, call_id, timestamp, data} ----------------
+
+function nativeHandler(details: (id: string) => { status: number; body?: object } | "throw", apiKey: string | null = "vk") {
+  const seen: { url: string; key: string | null }[] = [];
+  const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+    seen.push({ url, key: (init.headers as Record<string, string>)?.["X-API-Key"] ?? null });
+    const r = details(decodeURIComponent(url.split("/").pop()!));
+    if (r === "throw") throw new Error("network");
+    return new Response(JSON.stringify(r.body ?? {}), { status: r.status });
+  }) as unknown as typeof fetch;
+  const b = build();
+  const handle = createHandler(b.deps, { brainSecret: SECRET, vaaniWebhookSecret: "", vaaniApiKey: apiKey ?? undefined, fetchImpl });
+  return { ...b, handle, seen };
+}
+const nativePost = (h: (r: Request) => Promise<Response>, body: object) =>
+  h(new Request("http://x/webhooks/vaani", { method: "POST", body: JSON.stringify(body) }));
+const TRANSCRIPT = "[2026-10-08 10:00:01] AGENT: Good morning, Aangan Studio — how can I help you today?\n[2026-10-08 10:00:08] USER: I have a 3BHK in Kothrud and want to redo the whole flat\nand I am the owner\n[2026-10-08 10:00:15] AGENT: Lovely.";
+const post_event = { event: "call_postprocessing", call_id: "inbound-1-abc", timestamp: "2026-10-08T10:05:00+00:00", data: { call_duration: 180000, summary: "x", transcript: "[ts] AGENT: ignored, the API copy is used" } };
+
+test("native Vaani transcript strings parse, including wrapped lines and timestamps", () => {
+  const t = parseTranscript({ transcript: TRANSCRIPT })!;
+  assert.deepEqual(t.map((x) => x.speaker), ["agent", "caller", "agent"]);
+  assert.ok(t[1].text.endsWith("owner")); assert.ok(t[1].text.includes("whole flat and I am"));
+});
+
+test("native webhook: a call Vaani confirms is processed from Vaani's own transcript, once", async () => {
+  const { handle, repo, notifier, seen } = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+  const r = await (await nativePost(handle, post_event)).json() as any;
+  assert.equal(r.handled, true); assert.equal(r.transcript, true);
+  assert.equal(seen[0].key, "vk"); assert.ok(seen[0].url.endsWith("/api/call_details/inbound-1-abc"));
+  const rec = (await repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.equal(rec.verdict, "qualified"); assert.equal(rec.durationSec, 180); // milliseconds -> seconds
+  assert.ok(rec.transcript.some((x) => x.text.includes("Kothrud")) && !rec.transcript.some((x) => x.text.includes("ignored")));
+  assert.equal(notifier.sent.length, 1);
+  const again = await (await nativePost(handle, post_event)).json() as any;
+  assert.equal(again.duplicate, true); assert.equal(notifier.sent.length, 1); // retries do nothing
+});
+
+test("native webhook: a forged call id is rejected, nothing is created or sent", async () => {
+  const { handle, repo, notifier } = nativeHandler(() => ({ status: 404, body: { message: "Call not found" } }));
+  const res = await nativePost(handle, { ...post_event, call_id: "forged-99" });
+  assert.equal(res.status, 404); assert.equal(repo.calls.size, 0); assert.equal(notifier.sent.length, 0);
+});
+
+test("native webhook: cannot verify without an API key, or when Vaani is unreachable (Vaani can retry)", async () => {
+  assert.equal((await nativePost(nativeHandler(() => ({ status: 200 }), null).handle, post_event)).status, 503);
+  const down = nativeHandler(() => "throw");
+  assert.equal((await nativePost(down.handle, post_event)).status, 502); assert.equal(down.repo.calls.size, 0);
+  const boom = nativeHandler(() => ({ status: 500 }));
+  assert.equal((await nativePost(boom.handle, post_event)).status, 502);
+});
+
+test("native webhook: other events are ignored; missing call_id is a 400; placeholder transcript falls back to the payload", async () => {
+  const { handle, repo } = nativeHandler(() => ({ status: 200, body: { transcription: "Transcript is not available for further evaluations." } }));
+  assert.equal(((await (await nativePost(handle, { event: "call_ended", room_name: "r", call_duration: 42 })).json()) as any).handled, false);
+  assert.equal((await nativePost(handle, { event: "call_postprocessing" })).status, 400);
+  const r = await (await nativePost(handle, { ...post_event, data: { ...post_event.data, transcript: TRANSCRIPT } })).json() as any;
+  assert.equal(r.transcript, true); assert.equal((await repo.getByProviderCallId("inbound-1-abc"))!.verdict, "qualified");
+});
+
+test("native webhook: matches the call the desk tool opened, by time, since Vaani's call id is unknown to the tool", async () => {
+  const { handle, repo } = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+  await post(handle, "/tools/desk", { action: "qualify", callerPhone: "+91990", serviceType: "full_home", intent: "full_execution", location: "Kothrud", timelineKind: "flexible", decisionMaker: "self" });
+  const ts = new Date(NOW.getTime() + 3 * 60000).toISOString();
+  await nativePost(handle, { ...post_event, timestamp: ts, data: { ...post_event.data, call_duration: 150000 } });
+  assert.equal(repo.calls.size, 1); assert.equal([...repo.calls.values()][0].providerCallId, "inbound-1-abc");
+});

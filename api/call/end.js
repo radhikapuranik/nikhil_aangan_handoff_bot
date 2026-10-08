@@ -276,10 +276,9 @@ function createRepository(env = process.env) {
 var DEFAULT_RATES = {
   usdToInr: 88,
   // ASSUMPTION
-  // 4 paise/sec voicebot = Rs 2.40/min, from vaanilabs.in/docs/api. Their pricing
-  // page says pricing is sales-led, and Twilio telephony is billed separately,
-  // so confirm before trusting the dashboard total.
-  vaaniPerMinuteInr: 2.4,
+  // Rs 5.58/min is what the Vaani dashboard shows as the estimate for this agent (app.vaanivoice.ai).
+  // It may exclude telephony and can change with the agent's voice and model choices; confirm on the first bills.
+  vaaniPerMinuteInr: 5.58,
   geminiInputPerMTokUsd: 0.3,
   geminiOutputPerMTokUsd: 2.5,
   calcomPerBookingInr: 0,
@@ -294,7 +293,7 @@ function vaaniCost(durationSec, r = DEFAULT_RATES) {
     units: round(minutes),
     unit: "minute",
     costInr: r.vaaniPerMinuteInr === null ? null : round(minutes * r.vaaniPerMinuteInr),
-    rateNote: r.vaaniPerMinuteInr === null ? "Vaani rate not yet confirmed" : "documented self-serve rate; sales-led pricing may differ; excludes Twilio telephony"
+    rateNote: r.vaaniPerMinuteInr === null ? "Vaani rate not yet confirmed" : "estimate shown in the Vaani dashboard for this agent; may exclude telephony"
   };
 }
 function geminiCost(inputTokens, outputTokens, r = DEFAULT_RATES) {
@@ -1838,13 +1837,21 @@ function parseTranscript(data) {
     }
   } else if (typeof raw === "string") {
     for (const line of raw.split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Za-z ]{2,12}):\s*(.+)$/);
-      if (m) push(m[1], m[2]);
+      const m = line.match(/^\s*(?:\[[^\]]*\]\s*)?([A-Za-z ]{2,12}):\s*(.*)$/);
+      if (m && (AGENT_ROLES.has(m[1].toLowerCase().trim()) || CALLER_ROLES.has(m[1].toLowerCase().trim()))) push(m[1], m[2]);
+      else if (out.length && line.trim()) out[out.length - 1].text += " " + line.trim();
     }
   }
   return out.length ? out : null;
 }
-async function handleVaaniWebhook(d, rawBody, signature, secret) {
+async function handleVaaniWebhook(d, rawBody, signature, secret, opts = {}) {
+  let peek = null;
+  try {
+    const j = JSON.parse(rawBody);
+    peek = j && typeof j === "object" ? j : null;
+  } catch {
+  }
+  if (peek && typeof peek.event === "string") return handleNativeEvent(d, peek, opts);
   if (!verifySignature(rawBody, signature, secret)) return { status: 401, body: { error: "bad signature" } };
   let env;
   try {
@@ -1888,6 +1895,44 @@ async function handleVaaniWebhook(d, rawBody, signature, secret) {
   }
   return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict, transcript: Boolean(transcript) } };
 }
+var VAANI_API = "https://api.vaanivoice.ai";
+async function fetchCallDetails(callId, apiKey, f2 = fetch) {
+  const res = await f2(`${VAANI_API}/api/call_details/${encodeURIComponent(callId)}`, { headers: { "X-API-Key": apiKey } });
+  if (res.status === 404) return { exists: false, transcription: null };
+  if (!res.ok) throw new Error(`Vaani call_details -> ${res.status}`);
+  const j = await res.json();
+  const t = typeof j.transcription === "string" ? j.transcription : null;
+  return { exists: true, transcription: t && !/not available for further evaluations/i.test(t) ? t : null };
+}
+async function handleNativeEvent(d, body, opts) {
+  if (body.event !== "call_postprocessing") return { status: 200, body: { handled: false, reason: `ignored event ${String(body.event)}` } };
+  const callId = typeof body.call_id === "string" && body.call_id ? body.call_id : null;
+  if (!callId) return { status: 400, body: { error: "call_id is required" } };
+  if (!opts.vaaniApiKey) return { status: 503, body: { error: "VAANI_API_KEY is not configured, so this event cannot be verified" } };
+  let details;
+  try {
+    details = await fetchCallDetails(callId, opts.vaaniApiKey, opts.fetchImpl);
+  } catch {
+    return { status: 502, body: { error: "could not verify the call with Vaani; will accept a retry" } };
+  }
+  if (!details.exists) return { status: 404, body: { error: "unknown call" } };
+  const fresh = await d.repo.recordProviderEvent({ id: `call_postprocessing:${callId}`, type: "call_postprocessing", payload: { call_id: callId } });
+  if (!fresh) return { status: 200, body: { duplicate: true } };
+  const data = body.data && typeof body.data === "object" ? body.data : {};
+  const transcript = parseTranscript({ transcript: details.transcription ?? data.transcript });
+  const ms = typeof data.call_duration === "number" ? data.call_duration : Number(data.call_duration);
+  const durationSec = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1e3) : 0;
+  const endedMs = typeof body.timestamp === "string" && !Number.isNaN(Date.parse(body.timestamp)) ? Date.parse(body.timestamp) : Date.now();
+  const rec = await d.repo.getByProviderCallId(callId);
+  const done = await finalizeCall(d, {
+    providerCallId: callId,
+    startedAt: rec?.startedAt ?? new Date(endedMs - durationSec * 1e3).toISOString(),
+    endedAt: new Date(endedMs).toISOString(),
+    durationSec,
+    transcript
+  });
+  return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict, transcript: Boolean(transcript) } };
+}
 
 // src/voice/http.ts
 var DEGRADED_SAY = "I'm sorry, I'm having trouble on my side. Someone from our team will call you back shortly. Thank you for calling Aangan Studio.";
@@ -1906,7 +1951,7 @@ function createHandler(d, cfg) {
       if (req.method !== "POST") return json(405, { error: "method not allowed" });
       if (path === "/webhooks/vaani") {
         const raw = await req.text();
-        const r = await handleVaaniWebhook(d, raw, req.headers.get("x-vaanivoice-signature"), cfg.vaaniWebhookSecret);
+        const r = await handleVaaniWebhook(d, raw, req.headers.get("x-vaanivoice-signature"), cfg.vaaniWebhookSecret, { vaaniApiKey: cfg.vaaniApiKey, fetchImpl: cfg.fetchImpl });
         return json(r.status, r.body);
       }
       const desk = (dd, body) => {
@@ -1975,7 +2020,7 @@ function brainHandler(env = process.env) {
   return once("brain", () => {
     const integ = createIntegrations(env);
     const deps = { ...integ, repo: createRepository(env) };
-    return createHandler(deps, { brainSecret: env.BRAIN_SHARED_SECRET ?? "", vaaniWebhookSecret: env.VAANI_WEBHOOK_SECRET ?? "" });
+    return createHandler(deps, { brainSecret: env.BRAIN_SHARED_SECRET ?? "", vaaniWebhookSecret: env.VAANI_WEBHOOK_SECRET ?? "", vaaniApiKey: env.VAANI_API_KEY });
   });
 }
 

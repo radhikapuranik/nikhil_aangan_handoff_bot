@@ -4,7 +4,7 @@ import { NotFound, endCallHandler, startCallHandler, turnHandler } from "./brain
 import { availabilityTool, bookTool, qualifyTool } from "./tools.ts";
 import { handleVaaniWebhook } from "./vaani-webhook.ts";
 
-export interface HttpConfig { brainSecret: string; vaaniWebhookSecret: string }
+export interface HttpConfig { brainSecret: string; vaaniWebhookSecret: string; vaaniApiKey?: string; fetchImpl?: typeof fetch }
 
 // NOT IN SPEC: what the caller hears if our server fails mid-call.
 export const DEGRADED_SAY = "I'm sorry, I'm having trouble on my side. Someone from our team will call you back shortly. Thank you for calling Aangan Studio.";
@@ -32,7 +32,7 @@ export function createHandler(d: SessionDeps, cfg: HttpConfig) {
 
       if (path === "/webhooks/vaani") {
         const raw = await req.text(); // signature covers the raw bytes
-        const r = await handleVaaniWebhook(d, raw, req.headers.get("x-vaanivoice-signature"), cfg.vaaniWebhookSecret);
+        const r = await handleVaaniWebhook(d, raw, req.headers.get("x-vaanivoice-signature"), cfg.vaaniWebhookSecret, { vaaniApiKey: cfg.vaaniApiKey, fetchImpl: cfg.fetchImpl });
         return json(r.status, r.body);
       }
 

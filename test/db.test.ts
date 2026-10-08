@@ -24,7 +24,7 @@ test("unknown Vaani rate stays null and marks totals incomplete, never zero", ()
   assert.deepEqual(totalCost([v, ...geminiCost(1000, 200)]).incomplete, true);
   const known = vaaniCost(240, { ...DEFAULT_RATES, vaaniPerMinuteInr: 6 });
   assert.equal(known.units, 4); assert.equal(known.costInr, 24);
-  assert.equal(vaaniCost(60).costInr, 2.4); // documented 4 paise/sec
+  assert.equal(vaaniCost(60).costInr, 5.58); // Vaani dashboard estimate for this agent
 });
 
 test("gemini cost converts tokens to INR", () => {
