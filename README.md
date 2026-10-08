@@ -14,8 +14,9 @@ Be precise about this when asked.
 | All 20 phone transcripts (T01-T20) | **Run through the logic**, 20/20 agree with expected verdicts (see [Testing](#testing)). This tests the *decisions* given facts, not speech understanding |
 | Call log, cost ledger, dashboard | **Call log and cost ledger verified on the real Neon database** (schema applied; a test call written, read back through the dashboard query, then deleted). Dashboard viewed locally with *sample* data. Not yet run on Vercel |
 | **Gemini** (speech to facts) | **Verified live.** The real T01-T20 conversations, read turn by turn by `gemini-3.5-flash-lite` as a live call would, give **19/19 matching verdicts** (`npm run live:extract`). Caveat: I tuned the instructions against these same 19 calls, so this shows the approach works, not how it does on unseen calls |
-| Telegram, Cal.com | **Credentials verified** with read-only calls (bot sees the group; event types listed). No message sent and no booking made yet. The Cal.com slots endpoint is from memory, not docs |
-| HubSpot | **Written to the documented API, but the token lacks the Deals permission**, so it has never created a deal |
+| Telegram | **Verified live.** A test handoff note (sample data, labelled TEST) was sent to the designers' group through the real adapter |
+| Cal.com | **Verified live for reading**: the "Design consultation" event type exists and the slots endpoint returns real availability in the shape the code expects. **No booking has been made yet.** Default availability starts at 9am, so set the working hours to Aangan's in Cal.com |
+| HubSpot | **Written to the documented API, but not yet working**: the token still gets "missing scopes" on deals, so it has never created a deal |
 | **Vaani Labs voice link** | **Not confirmed.** Vaani's public docs show no way for outside code to steer a call turn by turn. See [Open risk: Vaani](#open-risk-vaani) |
 
 Nothing here has taken a real call yet.
