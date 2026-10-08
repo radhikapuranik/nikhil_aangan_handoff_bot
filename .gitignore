@@ -6,3 +6,4 @@ node_modules/
 .vercel
 .next
 pricing.md
+.env*

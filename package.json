@@ -15,11 +15,15 @@
     "dashboard:dev": "node src/scripts/dashboard-dev.ts",
     "db:migrate": "node --env-file=.env src/scripts/migrate.ts",
     "db:smoke": "node --env-file=.env src/scripts/db-smoke.ts",
+    "build:api": "node scripts/build-api.mjs",
     "vaani:docs": "node src/scripts/vaani-docs.ts",
     "live:webhook": "node --env-file=.env src/scripts/live-webhook.ts",
     "live:extract": "node --env-file=.env src/scripts/live-extraction.ts"
   },
   "dependencies": {
     "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
