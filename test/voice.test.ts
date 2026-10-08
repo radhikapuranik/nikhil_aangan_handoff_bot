@@ -114,7 +114,7 @@ test("webhook: Vaani retries (same evt id) are applied once", async () => {
   const { handle, repo } = build();
   const env = { id: "evt_dup", type: "call.completed", created: 1790000000, data: { call_id: "ghost", duration_sec: 60 } };
   const a = await (await hook(handle, env)).json() as any, b = await (await hook(handle, env)).json() as any;
-  assert.equal(a.loggedUnseen, true); assert.equal(b.duplicate, true);
+  assert.equal(a.handled, true); assert.equal(b.duplicate, true);
   assert.equal(repo.calls.size, 1);
 });
 
@@ -122,7 +122,7 @@ test("webhook: a call that never reached the brain is still logged, with its cos
   const { handle, repo } = build();
   await hook(handle, { id: "evt_u", type: "call.completed", created: 1790000000, data: { call_id: "unseen-1", duration_sec: 120 } });
   const rec = (await repo.getByProviderCallId("unseen-1"))!;
-  assert.equal(rec.verdict, "abandoned"); assert.ok(rec.reasons[0].includes("no turns reached the brain"));
+  assert.equal(rec.verdict, "abandoned"); assert.ok(rec.reasons[0].includes("no transcript and no tool activity"));
   assert.equal(repo.costs.find((c) => c.service === "vaani")!.costInr, 4.8); // 2 min x Rs 2.40
 });
 

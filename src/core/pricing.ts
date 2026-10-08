@@ -27,10 +27,13 @@ export function isPricingQuestion(utterance: string): boolean {
   return ASKING_PRICE.some((re) => re.test(utterance));
 }
 
-// Anything that looks like a price, range or per-sq-ft rate.
-const FORBIDDEN_IN_SPEECH = [
+// Money figures: a rupee amount, or a number of lakh/crore.
+const MONEY_IN_SPEECH = [
   /(?:₹|\brs\.?|\binr)\s*\d/i,
   /\d[\d,.]*\s*(?:lakh|lac|lakhs|crore|cr)\b/i,
+];
+// Rate phrases that are a breach whatever numbers surround them.
+const RATE_PHRASES_IN_SPEECH = [
   /\bper\s*(?:sq\.?\s*ft|square\s*f(?:oo|ee)t|sqft)\b/i,
   /\/\s*(?:sq\.?\s*ft|sqft)\b/i,
   /\b(?:it'?ll|it will) cost\b/i,
@@ -39,7 +42,14 @@ const FORBIDDEN_IN_SPEECH = [
 ];
 
 export function violatesPricingRule(speech: string): boolean {
-  return FORBIDDEN_IN_SPEECH.some((re) => re.test(speech));
+  return MONEY_IN_SPEECH.some((re) => re.test(speech)) || RATE_PHRASES_IN_SPEECH.some((re) => re.test(speech));
+}
+
+// "money": only a figure was found (it may just echo the caller's own number).
+// "phrase": a rate phrase was found, which is never an echo.
+export function pricingViolationKind(speech: string): "money" | "phrase" | null {
+  if (RATE_PHRASES_IN_SPEECH.some((re) => re.test(speech))) return "phrase";
+  return MONEY_IN_SPEECH.some((re) => re.test(speech)) ? "money" : null;
 }
 
 // Final gate before text-to-speech. Unsafe text is replaced, never edited.

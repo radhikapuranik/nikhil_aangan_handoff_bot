@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { SessionDeps } from "../session/call-session.ts";
 import { NotFound, endCallHandler, startCallHandler, turnHandler } from "./brain.ts";
+import { availabilityTool, bookTool, qualifyTool } from "./tools.ts";
 import { handleVaaniWebhook } from "./vaani-webhook.ts";
 
 export interface HttpConfig { brainSecret: string; vaaniWebhookSecret: string }
@@ -35,8 +36,20 @@ export function createHandler(d: SessionDeps, cfg: HttpConfig) {
         return json(r.status, r.body);
       }
 
-      if (!["/call/start", "/call/turn", "/call/end"].includes(path)) return json(404, { error: "not found" });
+      const TOOLS = { "/tools/qualify": qualifyTool, "/tools/availability": availabilityTool, "/tools/book": bookTool } as const;
+      if (!["/call/start", "/call/turn", "/call/end", ...Object.keys(TOOLS)].includes(path)) return json(404, { error: "not found" });
       if (!authorised(req, cfg.brainSecret)) return json(401, { error: "unauthorised" });
+
+      if (path in TOOLS) {
+        let tb: Record<string, unknown>;
+        try { tb = (await req.json()) as Record<string, unknown>; } catch { return json(400, { error: "invalid json" }); }
+        try { return json(200, await TOOLS[path as keyof typeof TOOLS](d, tb ?? {})); }
+        catch (e) {
+          // The AI must always get something it can act on, never a bare error.
+          console.error("tool failed", path, e);
+          return json(200, { say: "That check did not work. Carry on with the rules you were given, and do not quote any price.", error: true });
+        }
+      }
 
       let b: Record<string, unknown>;
       try { b = (await req.json()) as Record<string, unknown>; } catch { return json(400, { error: "invalid json" }); }

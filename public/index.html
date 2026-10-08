@@ -122,6 +122,7 @@
       <p class="hint">Every call is logged, whatever the outcome.</p>
       <div id="outcomeChart"></div>
       <ul class="legend" id="outcomeLegend"></ul>
+      <p class="hint" id="complianceNote" style="margin:14px 0 0"></p>
     </section>
     <section class="card" aria-labelledby="h-day">
       <h2 id="h-day">Enquiries per day</h2>
@@ -216,9 +217,17 @@ function render(d) {
   );
 
   drawOutcomes(s);
+  drawCompliance(s);
   drawDays(d.daily);
   drawCost(s);
   drawTables(d);
+}
+
+function drawCompliance(s) {
+  const c = s.compliance;
+  $("complianceNote").textContent = c.audited
+    ? `Script check: ${c.clean} of ${c.audited} audited calls kept to the scripts (no price quoted, scripted lines used).`
+    : "Script check: no call transcripts audited yet.";
 }
 
 function drawOutcomes(s) {
@@ -293,6 +302,7 @@ function drawCost(s) {
     el("span", { class: r.unknown ? "num flag" : "num" }, r.unknown ? "not recorded" : inr(r.v)))));
 }
 
+const AUDIT_TEXT = { price_quoted: "Agent quoted a price", pricing_line_not_verbatim: "Price question not answered with the scripted line", decline_line_not_verbatim: "Decline line not used word for word", booked_despite_verdict: "Booked a call the rules say to decline" };
 const VERDICT_LABEL = Object.fromEntries(OUTCOMES.map((o) => [o.key, o.label.split(",")[0]]));
 const ok = (t) => el("span", { class: "pill ok" }, t), bad = (t) => el("span", { class: "pill bad" }, t), plain = (t) => el("span", { class: "pill" }, t);
 const when = (iso) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
@@ -311,7 +321,7 @@ function callTable(table, calls) {
       el("td", {}, c.name || "—", el("div", { class: "muted", style: "font-size:12px" }, c.phoneMasked || "")),
       el("td", {}, VERDICT_LABEL[c.verdict] || c.verdict),
       el("td", {}, statusCell(c)),
-      el("td", {}, ...[...c.reasons.map((r) => el("div", { class: "muted" }, r)), ...c.flags.map((f) => el("div", { class: "flag" }, "⚠ " + f)), c.pricingAsked ? el("div", { class: "muted" }, "asked about price") : null]),
+      el("td", {}, ...[...c.reasons.map((r) => el("div", { class: "muted" }, r)), ...c.flags.map((f) => el("div", { class: "flag" }, "⚠ " + f)), ...(c.auditIssues || []).map((a) => el("div", { class: "flag", style: "color:var(--crit)" }, "✖ " + AUDIT_TEXT[a])), c.pricingAsked ? el("div", { class: "muted" }, "asked about price") : null]),
       el("td", { class: "num" }, ms(c.answerLatencyMs)),
       el("td", { class: "num" }, inr(c.costInr)))));
 }

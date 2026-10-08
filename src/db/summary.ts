@@ -6,6 +6,8 @@ export interface Summary {
   afterHoursCalls: number;
   verdicts: Record<string, number>;
   consultationsBooked: number;
+  // Calls whose transcript was checked for script breaches (quoted a price, wrong wording).
+  compliance: { audited: number; clean: number };
   pricingQuestions: number;
   latency: { medianMs: number | null; p95Ms: number | null; maxMs: number | null; under5MinPct: number | null };
   cost: {
@@ -60,6 +62,7 @@ export function summarise(calls: CallRecord[], costs: StoredCost[], fixed: Fixed
     afterHoursCalls: calls.filter((c) => c.afterHours).length,
     verdicts,
     consultationsBooked: calls.filter((c) => c.bookingStatus === "booked").length,
+    compliance: { audited: calls.filter((c) => c.auditIssues !== null && c.auditIssues !== undefined).length, clean: calls.filter((c) => c.auditIssues && c.auditIssues.length === 0).length },
     pricingQuestions: calls.filter((c) => c.pricingAsked).length,
     latency: {
       medianMs: pct(lat, 0.5), p95Ms: pct(lat, 0.95), maxMs: lat.length ? lat[lat.length - 1] : null,

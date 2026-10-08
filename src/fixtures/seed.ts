@@ -24,7 +24,8 @@ export async function seedDemo(repo: CallRepository, opts: { days?: number; call
     const istMinutes = after ? (r() < 0.5 ? Math.floor(r() * 9 * 60) : 19 * 60 + Math.floor(r() * 5 * 60)) : 10 * 60 + Math.floor(r() * 9 * 60);
     const day = new Date(now.getTime() - dayOffset * 86400000);
     const startedAt = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 0, 0) + (istMinutes - 330) * 60000).toISOString();
-    if (new Date(startedAt) > now) { i--; continue; }
+    // Stay inside [now - days, now]: a time-of-day offset must not push a call outside the window.
+    if (new Date(startedAt) > now || new Date(startedAt).getTime() < now.getTime() - days * 86400000) { i--; continue; }
     const duration = 90 + Math.floor(r() * 300);
     const rec = await startCall(repo, { providerCallId: `demo-${i}`, startedAt, answerLatencyMs: 600 + Math.floor(r() * 1400), callerPhone: `+9198${String(10000000 + Math.floor(r() * 89999999))}` });
     const decision = evaluate(fx.facts!, { c1: 1, c3: 2, c5: 1, c2: 2 }, new Date(startedAt));
@@ -37,6 +38,7 @@ export async function seedDemo(repo: CallRepository, opts: { days?: number; call
       decision, facts: { ...fx.facts!, callerName: fx.facts!.callerName ?? null }, transcript: [],
       endedAt: new Date(new Date(startedAt).getTime() + duration * 1000).toISOString(), durationSec: duration,
       pricingAsked: !!fx.pricingQuestions,
+      auditIssues: r() < 0.04 ? ["price_quoted", "pricing_line_not_verbatim"] : [],
       booking: qualified ? { status: booked ? "booked" : "declined_by_caller", time: booked ? new Date(new Date(startedAt).getTime() + 3 * 86400000).toISOString() : undefined } : undefined,
       handoff: qualified ? { status: handoffFailed ? "failed" : "sent" } : undefined,
       crm: qualified ? { status: "created", dealId: `demo-deal-${i}` } : undefined,

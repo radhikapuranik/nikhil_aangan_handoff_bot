@@ -30,6 +30,7 @@ export interface Outcome {
   handoff?: { status: HandoffStatus };
   crm?: { status: CrmStatus; dealId?: string };
   costs: CostEntry[];
+  auditIssues?: string[] | null;
   reasonOverride?: string; // when there is no decision to explain the outcome
 }
 
@@ -57,6 +58,7 @@ export async function finishCall(repo: CallRepository, callId: string, o: Outcom
     reasons: d?.reasons ?? (d ? [] : [o.reasonOverride ?? "caller hung up before qualification finished"]),
     flags: d?.flags ?? [],
     pricingAsked: o.pricingAsked,
+    auditIssues: o.auditIssues ?? null,
     handoffStatus: handoff,
     bookingStatus: o.booking?.status ?? (verdict === "qualified" ? "offered" : "not_applicable"),
     bookingTime: o.booking?.time ?? null,

@@ -10,14 +10,15 @@ Be precise about this when asked.
 
 | Piece | Status |
 |---|---|
-| Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (81 automated tests, all pass; `npm test`) |
+| Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (95 automated tests, all pass; `npm test`) |
 | All 20 phone transcripts (T01-T20) | **Run through the logic**, 20/20 agree with expected verdicts (see [Testing](#testing)). This tests the *decisions* given facts, not speech understanding |
 | Call log, cost ledger, dashboard | **Call log and cost ledger verified on the real Neon database** (schema applied; a test call written, read back through the dashboard query, then deleted). Dashboard viewed locally with *sample* data. Not yet run on Vercel |
 | **Gemini** (speech to facts) | **Verified live.** The real T01-T20 conversations, read turn by turn by `gemini-3.5-flash-lite` as a live call would, give **19/19 matching verdicts** (`npm run live:extract`). Caveat: I tuned the instructions against these same 19 calls, so this shows the approach works, not how it does on unseen calls |
 | Telegram | **Verified live.** A test handoff note (sample data, labelled TEST) was sent to the designers' group through the real adapter |
 | Cal.com | **Verified live for reading**: the "Design consultation" event type exists and the slots endpoint returns real availability in the shape the code expects. **No booking has been made yet.** Default availability starts at 9am, so set the working hours to Aangan's in Cal.com |
-| HubSpot | **Written to the documented API, but not yet working**: the token still gets "missing scopes" on deals, so it has never created a deal |
-| **Vaani Labs voice link** | **Not confirmed.** Vaani's public docs show no way for outside code to steer a call turn by turn. See [Open risk: Vaani](#open-risk-vaani) |
+| HubSpot | **Token works and can read deals.** No deal has been created yet. The account's pipeline uses custom stage names, so the deal stage is set to "Lead Captured" |
+| **After-call pipeline** (Vaani webhook, judge, script audit, handoff, deal) | **Verified live with real Gemini**: the real T01-T20 conversations replayed as webhooks give **19/19 matching verdicts, twice** (`npm run live:webhook`). Telegram/CRM/calendar were mocked in that run. Never fed a real Vaani webhook, so the transcript field names are a best guess |
+| **Vaani Labs** (voice agent) | **Not set up yet.** Checked in Vaani's dashboard: its AI runs the conversation from written instructions and calls my tools only when it decides to. See [How Vaani is wired](#how-vaani-is-wired). The API key given does not work with the public API, but this design doesn't need it |
 
 Nothing here has taken a real call yet.
 
@@ -38,14 +39,14 @@ Nikhil asked for the system to "quote our standard per-square-foot pricing". **I
 
 > "Pricing depends on the site, the materials you choose, and the scope — your designer will walk you through it in detail at the consultation. I can book that for you right now if you'd like."
 
-Three layers enforce it, so a model slip can't leak a number: (1) a detector recognises price questions in many phrasings, including Hinglish; (2) the answer is a fixed string, never model-written; (3) a final check blocks any rupee amount, "lakh", or per-sq-ft figure in anything the agent is about to say, replacing it with the scripted line. Asking the price never disqualifies a caller.
+Because Vaani's own AI does the speaking, my code cannot rewrite its words, so the rule is enforced in four ways: (1) the exact line and the "never state a number" rule are in the agent's instructions; (2) the `qualify_enquiry` tool returns the exact words for decline, deferral and escalation; (3) **after every call, an audit checks the transcript** for any rupee figure, "lakh" or per-sq-ft figure the agent said, and for whether the scripted line was used when price came up. A breach is stored on the call, shown on the dashboard, and sent to the senior Telegram channel at once; (4) the dashboard shows a script-compliance count. This catches breaches after the fact. It cannot prevent them mid-call. Asking the price never disqualifies a caller.
 
 ## Why each tool
 
 | Component | Role | Why this one |
 |---|---|---|
 | **Claude Code** | Builds and maintains the project | The brief's requirement. Every step is a git commit |
-| **Vaani Labs** | Answers calls, speaks (including Indian languages and accents) | Built for India. Hinglish shows up in the enquiries (W03, a WhatsApp thread), so callers may mix languages. Per-second billing is documented. **Whether it can drive the conversation turn by turn is unconfirmed**, see below |
+| **Vaani Labs** | Answers calls and speaks (including Indian languages and accents) | Built for India. Hinglish shows up in the enquiries (W03, a WhatsApp thread), so callers may mix languages. Its AI runs the conversation from written instructions, calls my tools for rules and booking, and sends a call-completed notification afterwards |
 | **Gemini Flash** (`gemini-3.5-flash-lite`) | Reads what the caller said into structured facts; routes general questions | Cheap and fast (about $0.30/$2.50 per million tokens in/out), so it adds well under ₹1 per call. It only *reads*: every decision is plain code, so verdicts are testable and the scripts can't be reworded |
 | **Neon** (Postgres) | Call log, state, cost ledger | Serverless Postgres, free tier, works from Vercel functions. A call's in-progress state lives here, so any server can take the next turn. (Supabase also works: the code supports both) |
 | **Cal.com** | Books the consultation inside the call | Free, has an API, books in seconds so there is no separate follow-up step. Needs an attendee email, which phone callers rarely give, so a placeholder is used (see limitations) |
@@ -61,23 +62,34 @@ I chose Telegram because the handoff only works if a designer sees it in the nex
 ## How a call works
 
 ```
-Caller -> Vaani (voice) -> POST /api/call/turn -> brain
-                                                    |-- Gemini reads the facts the caller has stated
-                                                    |-- qualification engine decides (plain code)
-                                                    |     existing client? -> escalate, never decline
-                                                    |     out of scope / out of area / advice only / budget far too low -> decline script
-                                                    |     under 6 weeks -> honest "earliest start" (deferral)
-                                                    |     unclear -> one follow-up question, then forward with a flag
-                                                    |     else qualified
-                                                    |-- price question? -> verbatim deflection
-                                                    `-- qualified: offer two slots, book in the call
-After the call: Telegram handoff + HubSpot deal + call row + cost rows (Supabase)
+Caller -> Vaani (answers, speaks; its AI follows the instructions in docs/vaani-agent-instructions.md)
+            |-- calls qualify_enquiry  -> my rules: verdict + exact words to say   (existing client: senior team alerted at once)
+            |-- calls check_availability / book_consultation -> Cal.com, booked inside the call
+            `-- when the call ends: "call.completed" webhook with the transcript
+                      |
+                      v  my server (Vercel)
+                 judge the transcript turn by turn (Gemini reads the facts, plain code decides)
+                 audit what the agent said (price quoted? scripted lines used?)
+                 qualified -> Telegram handoff note + HubSpot deal
+                 everything -> call row + cost rows (Neon); breaches -> senior Telegram alert
 Dashboard (Vercel) reads the call log.
 ```
 
+The decision engine is the same code in every path. What changed is who speaks: Vaani's AI, guided by instructions and my tools, instead of my server writing each line.
+
+## How Vaani is wired
+
+Checked in Vaani's dashboard: it does **not** call a server on every turn. Its AI runs the conversation from agent instructions, and calls custom Tools only when it decides it needs something. So:
+
+1. **Paste `docs/vaani-agent-instructions.md`** into the agent's instructions. It is generated from the same constants as the tested code (`npm run vaani:docs`), so the scripts are word for word.
+2. **Create the three tools** in `docs/vaani-tools.md` (qualify_enquiry, check_availability, book_consultation), each pointing at the deployed server with the shared secret.
+3. **Create a webhook** for `call.completed` and `call.failed` pointing at `/api/webhooks/vaani`, and put its signing secret in `VAANI_WEBHOOK_SECRET`.
+
+Still unconfirmed, to check on the first real call: the exact field names of the transcript in the webhook, whether tools receive the call id (if not, a call is matched to its record by time window, which can fail if two calls overlap), and whether the AI reliably calls `qualify_enquiry` every time. The earlier endpoints that drive a call turn by turn (`/api/call/*`) still exist but are not used with Vaani.
+
 ## Testing
 
-`npm test` runs 81 tests. `npm run live:extract` runs the real conversations through live Gemini (needs `GEMINI_API_KEY`). `npm run test:transcripts` prints the T01-T20 table.
+`npm test` runs 95 tests. `npm run live:extract` runs the real conversations through live Gemini (needs `GEMINI_API_KEY`). `npm run test:transcripts` prints the T01-T20 table.
 
 `qualification-logic.md` contains only a **summary** of the validated results, not a per-call table, so I compared against *my reading* of the spec for each call. That reading is mine, and so are the hand-extracted facts, so agreement shows the logic is consistent with the spec, not that it was independently validated.
 
@@ -109,12 +121,6 @@ The spec says the logic is final, so these are only gaps, all marked in the code
 5. **Three lines have no wording in the spec** (the escalation line, the deferral offer, the booking confirmations), and a fallback line if the server fails mid-call. I wrote them; they are marked "NOT IN SPEC".
 6. **Extra Pune neighbourhoods** (Kharadi, Nanded City, etc.) are treated as "adjoining areas", since real calls mention them.
 
-## Open risk: Vaani
-
-I read Vaani's public docs and OpenAPI spec. They show voice sessions, meeting rooms and API keys, but **no inbound phone-number setup and no way for outside code to control a call turn by turn**. Calls appear to be driven by a dashboard "flow builder", with results delivered as notification-only webhooks (phone numbers masked). Their quickstart also mentions **Twilio** for telephony, a possible extra account and cost. A search result describing a "bring your own LLM" WebSocket was about a different company (Omind's Vaani).
-
-What I built works either way: a stateless "brain" the voice platform calls (`/api/call/start`, `/turn`, `/end`) and a webhook receiver written to Vaani's documented signing and retry rules. What's needed: Vaani confirming that a flow can call an HTTP endpoint on every caller turn. If it can't, the fallback is a platform that accepts a webhook brain, and **that is a stack change I'd raise with you first**.
-
 ## Cost
 
 The ledger records every billable event per call. All rates are estimates until confirmed.
@@ -129,7 +135,8 @@ The ledger records every billable event per call. All rates are estimates until 
 
 - **No real call has happened.** Gemini and the Neon database are verified live; Vaani, Cal.com booking, Telegram messages and HubSpot deals are not. The Gemini check used the 19 calls I tuned against, so it needs a fresh set of calls to mean more.
 - **Gemini over-reads "self".** It sometimes marks the caller as the decision-maker when they never said (T02), which skips the flag the designer should see. Worth tightening with real calls.
-- **Voice, telephony and the Vaani link** are unresolved (above).
+- **The scripts are no longer guaranteed word for word.** Vaani's AI speaks, so wording and the no-price rule rest on its instructions and the tools, with an after-call audit as the safety net. The audit finds breaches; it cannot stop one mid-call. Booking depends on the AI choosing to call the tools.
+- **No live number.** Testing will be in the browser (WebRTC), so telephony and any Twilio cost are still undecided.
 - **Speech understanding is the weak point.** Accents, noise, callers who answer two questions at once, and Hindi/Marathi mixed in. Real calls will need review and tuning, and a human-review queue for low-confidence extractions.
 - **Callbacks never close.** Urgent escalations stay on the "Needs a person" list because nothing marks them done. A Telegram reply or dashboard button should.
 - **No email for bookings.** Cal.com requires one; a placeholder is used, so Cal.com's own confirmation email won't reach the caller. The confirmation is spoken and the designer gets it by Telegram. Better: send an SMS or WhatsApp confirmation.
@@ -153,9 +160,11 @@ The qualification logic knows nothing about phones: it takes extracted facts and
 Requires Node 22.18+ (or 24). No dependencies to install.
 
 ```bash
-npm test                  # 81 tests
+npm test                  # 95 tests
 npm run test:transcripts  # T01-T20 table
-npm run simulate          # talk to the agent in the terminal (mock services)
+npm run simulate          # talk to the old turn-by-turn brain in the terminal (mock services)
+npm run vaani:docs        # regenerate the text to paste into Vaani (docs/)
+npm run live:webhook      # replay T01-T20 through the real after-call pipeline with live Gemini
 npm run dashboard:dev     # dashboard with SAMPLE data on :8788, password "demo"
 npm run serve             # local call endpoints on :8787
 ```
@@ -173,5 +182,5 @@ src/db/           repositories, recorder, summaries, dashboard data
 src/fixtures/     T01-T20 as facts, harness, sample-data seed
 public/, api/     dashboard page and Vercel functions
 db/migrations/    SQL
-test/             81 tests
+test/             95 tests
 ```

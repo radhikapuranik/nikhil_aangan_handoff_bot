@@ -32,6 +32,7 @@ export interface CallRecord {
   bookingRef: string | null;
   crmStatus: CrmStatus;
   crmDealId: string | null;
+  auditIssues: string[] | null; // null = not audited; [] = clean
   sessionState: unknown | null; // in-call state, so any server instance can resume the call
 }
 

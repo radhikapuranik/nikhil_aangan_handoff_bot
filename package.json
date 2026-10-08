@@ -15,6 +15,8 @@
     "dashboard:dev": "node src/scripts/dashboard-dev.ts",
     "db:migrate": "node --env-file=.env src/scripts/migrate.ts",
     "db:smoke": "node --env-file=.env src/scripts/db-smoke.ts",
+    "vaani:docs": "node src/scripts/vaani-docs.ts",
+    "live:webhook": "node --env-file=.env src/scripts/live-webhook.ts",
     "live:extract": "node --env-file=.env src/scripts/live-extraction.ts"
   },
   "dependencies": {

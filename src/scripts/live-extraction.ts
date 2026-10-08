@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { geminiCost, totalCost } from "../core/costs.ts";
-import { evaluate } from "../core/qualify.ts";
-import type { AskedCounts, CallFacts } from "../core/types.ts";
+import type { CallFacts } from "../core/types.ts";
+import { judgeConversation } from "../session/judge.ts";
 import { PHONE_FIXTURES } from "../fixtures/phone-transcripts.ts";
 import { DEFAULT_GEMINI_MODEL, GeminiLlm } from "../integrations/gemini.ts";
 
@@ -27,23 +27,11 @@ async function one(t: (typeof texts)[number]) {
   const llm = new GeminiLlm(key, model, fetch, () => new Date(t.date));
   const today = new Date(t.date);
 
-  // Mirror the live call: read after each caller turn, keep earlier facts, and
-  // stop at the first terminal verdict, as CallSession does.
-  const callerIdx = t.turns.map((x, i) => (x.speaker === "caller" ? i : -1)).filter((i) => i >= 0);
-  const asked: AskedCounts = {};
-  let facts: CallFacts | null = null;
-  let d = null as ReturnType<typeof evaluate> | null;
-  let turnsUsed = 0;
-  for (const idx of callerIdx) {
-    const r = await llm.extractFacts(t.turns.slice(0, idx + 1).map((x) => ({ ...x, at: t.date })), facts);
-    inTok += r.usage.inputTokens; outTok += r.usage.outputTokens; reads++; turnsUsed++;
-    facts = r.facts;
-    d = evaluate(facts, asked, today);
-    if (d.verdict === "needs_followup") { asked[d.ask!] = (asked[d.ask!] ?? 0) + 1; continue; }
-    if (d.verdict !== "qualified") break; // declined / deferred / escalated end the call
-  }
-  // The transcript ran out: questions still unanswered are marked asked, as in the harness.
-  for (let i = 0; i < 12 && d && d.verdict === "needs_followup"; i++) { asked[d.ask!] = (asked[d.ask!] ?? 0) + 1; d = evaluate(facts!, asked, today); }
+  // Same routine the post-call finaliser uses.
+  const j = await judgeConversation(llm, t.turns.map((x) => ({ ...x, at: t.date })), today);
+  inTok += j.usage.inputTokens; outTok += j.usage.outputTokens; reads += j.reads;
+  const facts = j.facts, d = j.decision, turnsUsed = j.turnsUsed;
+  const callerIdx = t.turns.filter((x) => x.speaker === "caller");
   if (!d || !facts) { log(`${t.id}  ERROR no result`); return lines; }
   const ok = d.verdict === fx.expected; total++; if (ok) agree++;
 

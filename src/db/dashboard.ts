@@ -7,6 +7,7 @@ export interface RecentCall {
   verdict: string; reasons: string[]; flags: string[]; pricingAsked: boolean;
   handoffStatus: string; bookingStatus: string; bookingTime: string | null; crmStatus: string;
   durationSec: number | null; answerLatencyMs: number | null;
+  auditIssues: string[] | null;
   costInr: number | null; // null = at least one rate unknown
 }
 
@@ -28,7 +29,8 @@ export function needsAttention(c: CallRecord): boolean {
   return (
     c.handoffStatus === "failed" || c.handoffStatus === "escalation_pending" ||
     c.crmStatus === "failed" || c.bookingStatus === "failed" ||
-    (c.verdict === "qualified" && c.handoffStatus === "pending")
+    (c.verdict === "qualified" && c.handoffStatus === "pending") ||
+    Boolean(c.auditIssues && c.auditIssues.length)
   );
 }
 
@@ -38,7 +40,7 @@ function toRecent(c: CallRecord, costs: StoredCost[]): RecentCall {
     id: c.id, startedAt: c.startedAt, afterHours: c.afterHours, phoneMasked: maskPhone(c.callerPhone), name: c.callerName,
     verdict: c.verdict, reasons: c.reasons, flags: c.flags, pricingAsked: c.pricingAsked,
     handoffStatus: c.handoffStatus, bookingStatus: c.bookingStatus, bookingTime: c.bookingTime, crmStatus: c.crmStatus,
-    durationSec: c.durationSec, answerLatencyMs: c.answerLatencyMs,
+    durationSec: c.durationSec, answerLatencyMs: c.answerLatencyMs, auditIssues: c.auditIssues ?? null,
     costInr: mine.some((x) => x.costInr === null) || !mine.length ? null : Math.round(mine.reduce((a, x) => a + (x.costInr ?? 0), 0) * 100) / 100,
   };
 }

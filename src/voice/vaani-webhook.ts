@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { CallSession, type SessionDeps } from "../session/call-session.ts";
-import { logUnseenCall } from "./brain.ts";
+import type { TranscriptTurn } from "../db/types.ts";
+import { finalizeCall } from "./finalize.ts";
 
 // Vaani webhooks: HMAC-SHA256 over the RAW body, sent as
 // "X-VaaniVoice-Signature: sha256=<hex>" (vaanilabs.in/docs/samples/webhooks).
@@ -39,6 +40,36 @@ export function parseCallEvent(data: Record<string, unknown>, createdUnix: numbe
   return { providerCallId, durationSec: durationSec !== null ? Math.round(durationSec) : null, startedAt };
 }
 
+const AGENT_ROLES = new Set(["agent", "assistant", "ai", "bot", "vaani", "system", "model"]);
+const CALLER_ROLES = new Set(["caller", "user", "customer", "human", "client", "contact", "lead"]);
+
+// The transcript's shape is not documented, so accept the common ones: an array
+// of {role|speaker, text|content|message}, or text lines like "Agent: ... / Caller: ...".
+export function parseTranscript(data: Record<string, unknown>): TranscriptTurn[] | null {
+  const raw = data.transcript ?? data.transcripts ?? data.messages ?? data.conversation ?? data.turns;
+  const at = new Date().toISOString();
+  const out: TranscriptTurn[] = [];
+  const push = (role: unknown, text: unknown) => {
+    const r = String(role ?? "").toLowerCase().trim();
+    const t = typeof text === "string" ? text.trim() : "";
+    if (!t) return;
+    if (AGENT_ROLES.has(r)) out.push({ speaker: "agent", text: t, at });
+    else if (CALLER_ROLES.has(r)) out.push({ speaker: "caller", text: t, at });
+  };
+  if (Array.isArray(raw)) {
+    for (const x of raw) if (x && typeof x === "object") {
+      const o = x as Record<string, unknown>;
+      push(o.role ?? o.speaker ?? o.from ?? o.sender, o.text ?? o.content ?? o.message ?? o.utterance);
+    }
+  } else if (typeof raw === "string") {
+    for (const line of raw.split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z ]{2,12}):\s*(.+)$/);
+      if (m) push(m[1], m[2]);
+    }
+  }
+  return out.length ? out : null;
+}
+
 export type WebhookResult = { status: number; body: Record<string, unknown> };
 
 export async function handleVaaniWebhook(d: SessionDeps, rawBody: string, signature: string | null, secret: string): Promise<WebhookResult> {
@@ -60,22 +91,29 @@ export async function handleVaaniWebhook(d: SessionDeps, rawBody: string, signat
   if (!ev.providerCallId) return { status: 200, body: { stored: true, handled: false, reason: "no call id in payload" } };
 
   const rec = await d.repo.getByProviderCallId(ev.providerCallId);
-  if (!rec) {
-    // The call never reached the brain. Log it anyway, so no call is silent.
-    const logged = await logUnseenCall(d, {
-      providerCallId: ev.providerCallId, startedAt: ev.startedAt!, durationSec: ev.durationSec ?? 0,
-      reason: failed ? "voice platform reported a pipeline error and no turns reached the brain" : "call reached the voice platform but no turns reached the brain",
+  const endedAt = new Date(created * 1000).toISOString();
+
+  // A call run through our own brain endpoints keeps its saved session: finish that.
+  if (rec?.sessionState) {
+    const s = CallSession.resume(d, rec);
+    const done = await s.finish({
+      endedAt,
+      durationSec: ev.durationSec ?? Math.max(0, Math.round((created * 1000 - new Date(rec.startedAt).getTime()) / 1000)),
     });
-    return { status: 200, body: { handled: true, loggedUnseen: true, callId: logged.id } };
+    if (failed && done.reasons.every((r) => !r.includes("pipeline"))) {
+      await d.repo.updateCall(done.id, { reasons: [...done.reasons, "voice platform reported a pipeline error mid-call"] });
+    }
+    return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict } };
   }
 
-  const s = CallSession.resume(d, rec);
-  const done = await s.finish({
-    endedAt: new Date(created * 1000).toISOString(),
-    durationSec: ev.durationSec ?? Math.max(0, Math.round((created * 1000 - new Date(rec.startedAt).getTime()) / 1000)),
+  // Otherwise the voice platform's own AI ran the call: judge, audit, hand off, record.
+  const transcript = parseTranscript(data);
+  const durationSec = ev.durationSec ?? (rec ? Math.max(0, Math.round((created * 1000 - new Date(rec.startedAt).getTime()) / 1000)) : 0);
+  const done = await finalizeCall(d, {
+    providerCallId: ev.providerCallId, startedAt: rec?.startedAt ?? ev.startedAt!, endedAt, durationSec, transcript,
   });
   if (failed && done.reasons.every((r) => !r.includes("pipeline"))) {
     await d.repo.updateCall(done.id, { reasons: [...done.reasons, "voice platform reported a pipeline error mid-call"] });
   }
-  return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict } };
+  return { status: 200, body: { handled: true, callId: done.id, verdict: done.verdict, transcript: Boolean(transcript) } };
 }

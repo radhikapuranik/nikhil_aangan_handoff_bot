@@ -1,16 +1,14 @@
-import {
-  calcomCost, geminiCost, hubspotCost, telegramCost, vaaniCost, DEFAULT_RATES,
-  type CostEntry, type Rates,
-} from "../core/costs.ts";
+import type { Rates } from "../core/costs.ts";
 import { FAQ_ANSWERS } from "../core/faq.ts";
 import { buildHandoffNote } from "../core/handoff.ts";
+import { completeCall } from "./post-call.ts";
 import { guardSpeech, isPricingQuestion, pricingResponse } from "../core/pricing.ts";
 import { evaluate } from "../core/qualify.ts";
 import { openingLine } from "../core/scripts.ts";
 import type { AskedCounts, CallFacts, Decision } from "../core/types.ts";
-import { finishCall, startCall } from "../db/recorder.ts";
+import { startCall } from "../db/recorder.ts";
 import type { CallRepository } from "../db/repository.ts";
-import type { BookingStatus, CallRecord, CrmStatus, HandoffStatus, TranscriptTurn } from "../db/types.ts";
+import type { BookingStatus, CallRecord, TranscriptTurn } from "../db/types.ts";
 import type { Integrations, Slot, Usage } from "../integrations/types.ts";
 
 export interface SessionDeps extends Integrations {
@@ -210,47 +208,13 @@ export class CallSession {
     }
   }
 
-  // Called on hang-up (or once the agent has ended the call). Sends the
-  // handoff, creates the deal, and writes the call row and cost ledger.
+  // Called on hang-up (or once the agent has ended the call).
   async finish(a: { endedAt: string; durationSec: number }): Promise<CallRecord> {
-    // Idempotent: a second hang-up signal must not resend the handoff or deal.
-    if (this.rec.verdict !== "in_progress") return this.rec;
-    const rates = this.d.rates ?? DEFAULT_RATES;
-    const costs: CostEntry[] = [vaaniCost(a.durationSec, rates)];
-    if (this.usage.inputTokens || this.usage.outputTokens) costs.push(...geminiCost(this.usage.inputTokens, this.usage.outputTokens, rates));
-    if (this.calendarCalls) for (let i = 0; i < this.calendarCalls; i++) costs.push(calcomCost(rates));
-
-    const dec = this.decision;
-    let handoff: { status: HandoffStatus } | undefined;
-    let crm: { status: CrmStatus; dealId?: string } | undefined;
-
-    if (dec?.verdict === "qualified" && this.facts) {
-      const note = buildHandoffNote(this.facts, dec, {
-        booked: this.booking.status === "booked",
-        when: this.booking.time ? new Date(this.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : undefined,
-      });
-      try { await this.d.notifier.send("designers", note); costs.push(telegramCost(rates)); handoff = { status: "sent" }; }
-      catch { handoff = { status: "failed" }; }
-      try {
-        const deal = await this.d.crm.createDeal({
-          dealName: `${this.facts.callerName ?? "Phone enquiry"} — ${this.facts.location ?? "Pune"} ${this.facts.serviceType.replace(/_/g, " ")}`,
-          contactName: this.facts.callerName ?? null, phone: this.facts.phone ?? null, note,
-        });
-        costs.push(hubspotCost(rates)); crm = { status: "created", dealId: deal.dealId };
-      } catch { crm = { status: "failed" }; }
-    } else if (dec?.verdict === "escalated") {
-      const lines = this.transcript.filter((t) => t.speaker === "caller").map((t) => `- ${t.text}`).join("\n");
-      const msg = `URGENT: existing-client issue. Senior callback needed within 15 minutes.\nCaller: ${this.facts?.callerName ?? "(name not given)"} | ${this.facts?.phone ?? "(phone not captured)"}\nWhat they said:\n${lines}`;
-      try { await this.d.notifier.send("senior", msg); costs.push(telegramCost(rates)); handoff = { status: "escalation_pending" }; }
-      catch { handoff = { status: "failed" }; }
-    }
-
     this.phase = "closed";
-    return finishCall(this.d.repo, this.rec.id, {
-      decision: dec, facts: this.facts, transcript: this.transcript,
+    return completeCall(this.d, this.rec, {
+      decision: this.decision, facts: this.facts, transcript: this.transcript,
       endedAt: a.endedAt, durationSec: a.durationSec, pricingAsked: this.pricingAsked,
-      booking: dec?.verdict === "qualified" ? this.booking : undefined,
-      handoff, crm, costs,
+      booking: this.booking, usage: this.usage, calendarCalls: this.calendarCalls,
     });
   }
 }

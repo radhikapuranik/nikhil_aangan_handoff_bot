@@ -5,7 +5,7 @@ import { buildDashboard, maskPhone, needsAttention } from "../src/db/dashboard.t
 import { seedDemo } from "../src/fixtures/seed.ts";
 
 const NOW = new Date("2026-10-07T12:00:00Z");
-const RANGE = { from: "2026-09-08T00:00:00Z", to: "2026-10-08T00:00:00Z" };
+const RANGE = { from: "2026-09-07T00:00:00Z", to: "2026-10-08T00:00:00Z" }; // covers the seed window [now-30d, now] completely
 
 test("seeded dashboard: counts add up, ~1/3 after hours, every day present, latency near zero", async () => {
   const repo = new MemoryRepository();
@@ -15,7 +15,7 @@ test("seeded dashboard: counts add up, ~1/3 after hours, every day present, late
   assert.equal(s.totalCalls, 70);
   assert.equal(Object.values(s.verdicts).reduce((a, b) => a + b, 0), 70);
   assert.ok(s.afterHoursCalls > 10 && s.afterHoursCalls < 35, String(s.afterHoursCalls));
-  assert.equal(d.daily.length, 30);
+  assert.equal(d.daily.length, 31);
   assert.equal(d.daily.reduce((a, x) => a + x.inHours + x.afterHours, 0), 70);
   assert.ok(s.latency.medianMs! < 3000); assert.equal(s.latency.under5MinPct, 100);
   assert.ok(s.cost.totalInr > 0 && s.cost.byService.vaani > 0);
