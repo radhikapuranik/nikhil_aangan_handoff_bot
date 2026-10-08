@@ -19,8 +19,8 @@ Be precise about this when asked.
 | Telegram | **Verified live.** A test handoff note (sample data, labelled TEST) was sent to the designers' group through the real adapter |
 | Cal.com | **Verified live for reading**: the "Design consultation" event type exists and the slots endpoint returns real availability in the shape the code expects. **No booking has been made yet.** Default availability starts at 9am, so set the working hours to Aangan's in Cal.com |
 | HubSpot | **Verified live.** A labelled test deal and contact were created through the real adapter, linked to each other, landed in the default pipeline at "Lead Captured" with no amount set, and were then deleted. The account's pipeline uses custom stage names, so the stage id is set in `.env` |
-| **After-call pipeline** (Vaani webhook, judge, script audit, handoff, deal) | **Verified live with real Gemini**: the real T01-T20 conversations replayed as webhooks give **19/19 matching verdicts, twice** (`npm run live:webhook`). Telegram/CRM/calendar were mocked in that run. Never fed a real Vaani webhook, so the transcript field names are a best guess |
-| **Vaani Labs** (voice agent) | **Not set up yet.** Checked in Vaani's dashboard: its AI runs the conversation from written instructions and calls my tools only when it decides to. See [How Vaani is wired](#how-vaani-is-wired). The API key given does not work with the public API, but this design doesn't need it |
+| **After-call pipeline** (Vaani webhook, judge, script audit, handoff, deal) | **Verified live with real Gemini**: the real T01-T20 conversations replayed as webhooks give **19/19 matching verdicts, twice** (`npm run live:webhook`). Telegram/CRM/calendar were mocked in that run. The webhook receiver matches Vaani's documented `call_postprocessing` format and verifies each call with Vaani's API; no real Vaani event has reached it yet |
+| **Vaani** (voice agent, app.vaanivoice.ai) | **Set up and tested in text chat.** The agent "Aangan Studio Phone Desk" is configured with the generated instructions (OpenAI gpt-4o, temperature 0). In chat it asks the right questions, uses the decline line word for word, and the price line word for word apart from "you'd" becoming "you would". **Not yet tested by voice or on a real call.** Vaani's "call finished" notification does not fire for chat tests, so the after-call pipeline has not yet received a real Vaani event |
 
 Nothing here has taken a real call yet.
 
@@ -81,13 +81,15 @@ The decision engine is the same code in every path. What changed is who speaks: 
 
 ## How Vaani is wired
 
-Checked in Vaani's dashboard: it does **not** call a server on every turn. Its AI runs the conversation from agent instructions, and calls custom Tools only when it decides it needs something. So:
+The real platform is **app.vaanivoice.ai** (docs at docs.vaanivoice.ai). What is set up there:
 
-1. **Paste `docs/vaani-agent-instructions.md`** into the agent's instructions. It is generated from the same constants as the tested code (`npm run vaani:docs`), so the scripts are word for word.
-2. **Create the three tools** in `docs/vaani-tools.md` (qualify_enquiry, check_availability, book_consultation), each pointing at the deployed server with the shared secret.
-3. **Create a webhook** for `call.completed` and `call.failed` pointing at `/api/webhooks/vaani`, and put its signing secret in `VAANI_WEBHOOK_SECRET`.
+1. **Agent** "Aangan Studio Phone Desk", with the instructions from `docs/vaani-agent-instructions.md` (regenerate with `npm run vaani:docs`), OpenAI gpt-4o at temperature 0, greeting left blank so it follows the instructions.
+2. **Webhook** "Aangan call results" for the **Call Post-Processing** event, pointing at `https://aangan-phone-agent.vercel.app/api/webhooks/vaani`. Vaani's webhooks have no documented signature, so the server verifies each event by asking Vaani's API (`call_details`) whether that call exists and fetching the transcript from there. A forged call id gets a 404 and does nothing.
+3. **Custom tool** `aangan_desk` is created in Vaani (rules, availability, booking) and the server side is built and tested, but it is **switched off**. In testing, Vaani's AI never called it and instead read the tool's name aloud. It stays off until a voice test shows tool calls working.
 
-Still unconfirmed, to check on the first real call: the exact field names of the transcript in the webhook, whether tools receive the call id (if not, a call is matched to its record by time window, which can fail if two calls overlap), and whether the AI reliably calls `qualify_enquiry` every time. The earlier endpoints that drive a call turn by turn (`/api/call/*`) still exist but are not used with Vaani.
+Consequences, stated plainly: the agent **cannot book during the call**. It tells the caller the designer will phone to confirm a time, and the handoff note lists free slots for the designer to offer. The existing-client alert goes to the senior Telegram channel **after** the call, not during it.
+
+**Option to restore exact wording and in-call booking: Vaani's "Bring your own LLM" (BYOL).** Vaani can send every turn to my server over a persistent WebSocket, so my engine writes each line and nothing is paraphrased. It needs an always-on server (Vercel cannot hold WebSockets), which means one more hosting account. The turn-by-turn engine for this already exists in the code (`src/session/call-session.ts`).
 
 ## Testing
 
@@ -127,7 +129,7 @@ The spec says the logic is final, so these are only gaps, all marked in the code
 
 The ledger records every billable event per call. All rates are estimates until confirmed.
 
-- Voice: 4 paise/sec = ₹2.40/min, from Vaani's API page. Their pricing page says pricing is sales-led, so confirm. **Telephony (Twilio) is not included.**
+- Voice: **₹5.58 per minute** is the estimate Vaani's dashboard shows for this agent (it can change with the voice and model chosen, and may exclude telephony). OpenAI gpt-4o is bundled into that estimate.
 - Gemini: **measured** about ₹0.13 per call (19 real conversations, about 3 model reads each, ₹2.43 in total). Switching off the model's hidden reasoning cut this ~6x; left on, it cost ₹0.80 per single read.
 - Cal.com, Telegram, HubSpot, Supabase, Vercel: ₹0 on free tiers.
 - A 4-minute call is therefore roughly ₹10 before telephony. If all ~200 monthly enquiries were calls, that is about ₹2,000 a month in usage, plus fixed fees. This is an estimate from documented rates, not a measurement.
@@ -135,9 +137,9 @@ The ledger records every billable event per call. All rates are estimates until 
 
 ## Known limitations and what I'd do with more time
 
-- **No real call has happened.** Gemini and the Neon database are verified live; Vaani, Cal.com booking, Telegram messages and HubSpot deals are not. The Gemini check used the 19 calls I tuned against, so it needs a fresh set of calls to mean more.
+- **No real call has happened.** Gemini, Neon, Telegram, HubSpot, Cal.com (booking) and Vercel are verified live. Vaani is verified in text chat only. The first voice test is the next step: it should fire Vaani's call-finished notification and drive the after-call pipeline end to end.
 - **Gemini over-reads "self".** It sometimes marks the caller as the decision-maker when they never said (T02), which skips the flag the designer should see. Worth tightening with real calls.
-- **The scripts are no longer guaranteed word for word.** Vaani's AI speaks, so wording and the no-price rule rest on its instructions and the tools, with an after-call audit as the safety net. The audit finds breaches; it cannot stop one mid-call. Booking depends on the AI choosing to call the tools.
+- **The scripts are not guaranteed word for word.** Vaani's AI speaks. At temperature 0 with strict instructions it kept the decline and price lines word for word in chat tests, but a model can still drift. The after-call audit finds breaches and alerts the senior channel; it cannot stop one mid-call. BYOL (above) is the way to guarantee it.
 - **No live number.** Testing will be in the browser (WebRTC), so telephony and any Twilio cost are still undecided.
 - **Speech understanding is the weak point.** Accents, noise, callers who answer two questions at once, and Hindi/Marathi mixed in. Real calls will need review and tuning, and a human-review queue for low-confidence extractions.
 - **Callbacks never close.** Urgent escalations stay on the "Needs a person" list because nothing marks them done. A Telegram reply or dashboard button should.
