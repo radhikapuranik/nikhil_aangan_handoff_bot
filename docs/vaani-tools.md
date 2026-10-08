@@ -3,7 +3,7 @@
 For each tool below: method **POST**, header `Authorization: Bearer <your BRAIN_SHARED_SECRET>`, body type JSON. Replace the base URL with your deployed address.
 
 ## qualify_enquiry
-- URL: `https://YOUR-DEPLOYMENT.vercel.app/api/tools/qualify`
+- URL: `https://aangan-phone-agent.vercel.app/api/tools/qualify`
 - Description (paste this): Apply Aangan's qualifying rules to what the caller has said so far. Returns the verdict and the exact words to say or the next question to ask. Call it whenever you learn something new. Always follow what it returns.
 
 | Parameter | Type | Meaning |
@@ -27,7 +27,7 @@ For each tool below: method **POST**, header `Authorization: Bearer <your BRAIN_
 | `alreadyAsked` | array of strings | Questions you have already asked: any of project, location, timeline, decision_maker. Repeat an item each time you ask it again. |
 
 ## check_availability
-- URL: `https://YOUR-DEPLOYMENT.vercel.app/api/tools/availability`
+- URL: `https://aangan-phone-agent.vercel.app/api/tools/availability`
 - Description (paste this): Get two free consultation slots to offer the caller. Call only after qualify_enquiry says the caller qualifies.
 
 | Parameter | Type | Meaning |
@@ -36,7 +36,7 @@ For each tool below: method **POST**, header `Authorization: Bearer <your BRAIN_
 | `callerPhone` | string | Caller's phone number if known. |
 
 ## book_consultation
-- URL: `https://YOUR-DEPLOYMENT.vercel.app/api/tools/book`
+- URL: `https://aangan-phone-agent.vercel.app/api/tools/book`
 - Description (paste this): Book the consultation in the slot the caller chose. Only tell the caller it is booked if this returns confirmed true.
 
 | Parameter | Type | Meaning |
@@ -47,4 +47,4 @@ For each tool below: method **POST**, header `Authorization: Bearer <your BRAIN_
 | `slotStart` | string | The 'start' value of the chosen slot, exactly as returned by check_availability. |
 
 ## Webhook
-Create a webhook for **call.completed** (and call.failed) pointing at `https://YOUR-DEPLOYMENT.vercel.app/api/webhooks/vaani`. Put the signing secret Vaani shows you (starts `vv_whk_`) in `VAANI_WEBHOOK_SECRET`.
+Create a webhook for **call.completed** (and call.failed) pointing at `https://aangan-phone-agent.vercel.app/api/webhooks/vaani`. Put the signing secret Vaani shows you (starts `vv_whk_`) in `VAANI_WEBHOOK_SECRET`.

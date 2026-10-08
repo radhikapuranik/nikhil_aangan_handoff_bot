@@ -12,6 +12,7 @@ Be precise about this when asked.
 |---|---|
 | Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (95 automated tests, all pass; `npm test`) |
 | All 20 phone transcripts (T01-T20) | **Run through the logic**, 20/20 agree with expected verdicts (see [Testing](#testing)). This tests the *decisions* given facts, not speech understanding |
+| **Vercel deployment** | **Live at https://aangan-phone-agent.vercel.app** (dashboard at `/`, needs the password). Every endpoint is checked from outside: wrong or missing credentials get 401, and a forged webhook is rejected. A real round trip through production reached Neon and Cal.com (two real slots). Test rows removed |
 | Call log, cost ledger, dashboard | **Call log and cost ledger verified on the real Neon database** (schema applied; a test call written, read back through the dashboard query, then deleted). Dashboard viewed locally with *sample* data. Not yet run on Vercel |
 | **Gemini** (speech to facts) | **Verified live.** The real T01-T20 conversations, read turn by turn by `gemini-3.5-flash-lite` as a live call would, give **19/19 matching verdicts** (`npm run live:extract`). Caveat: I tuned the instructions against these same 19 calls, so this shows the approach works, not how it does on unseen calls |
 | Telegram | **Verified live.** A test handoff note (sample data, labelled TEST) was sent to the designers' group through the real adapter |
@@ -154,6 +155,17 @@ The qualification logic knows nothing about phones: it takes extracted facts and
 - **WhatsApp:** replace the voice adapter with the WhatsApp Business API webhook. Each inbound message goes to the same `turn` handler, keyed by the sender's number; the reply is sent as text. The same engine, scripts, booking, handoff and CRM steps apply. After-hours WhatsApp messages (like W01 and W05 in the transcripts, left unanswered until the next working day) would be answered at once.
 - **Web form:** a form submission already holds the facts (location, area, timeline, budget, who decides), so it skips the questions and goes straight to the engine. The form's budget field is a stated number, so the budget check applies there; qualified submissions would be booked by sending the caller a calendar link by SMS or email.
 - **Shared pieces:** one call log and one dashboard for all three channels (the `channel` column exists; it's constrained to phone today).
+
+## Deploying
+
+Vercel does not bundle the shared code the functions import, so each function in `api-src/` is bundled into one file in `api/` by esbuild. After changing any code run:
+
+```bash
+npm run build:api     # api-src/*.ts  ->  api/*.js (commit the result)
+vercel deploy --prod
+```
+
+Environment variables live in Vercel's production settings (secrets marked sensitive). Never commit `.env`.
 
 ## Running it
 
