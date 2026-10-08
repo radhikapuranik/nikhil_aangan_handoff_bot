@@ -36,7 +36,15 @@ export function createHandler(d: SessionDeps, cfg: HttpConfig) {
         return json(r.status, r.body);
       }
 
-      const TOOLS = { "/tools/qualify": qualifyTool, "/tools/availability": availabilityTool, "/tools/book": bookTool } as const;
+      // One tool, three actions: Vaani's AI sends {action: "qualify" | "availability" | "book", ...}.
+      const desk = (dd: SessionDeps, body: Record<string, unknown>) => {
+        const a = String(body.action ?? "").toLowerCase();
+        if (a === "qualify") return qualifyTool(dd, body);
+        if (a === "availability" || a === "check_availability") return availabilityTool(dd, body);
+        if (a === "book" || a === "book_consultation") return bookTool(dd, body);
+        return Promise.resolve({ error: true, say: "Unknown action. Use action qualify, availability or book." });
+      };
+      const TOOLS = { "/tools/desk": desk, "/tools/qualify": qualifyTool, "/tools/availability": availabilityTool, "/tools/book": bookTool } as const;
       if (!["/call/start", "/call/turn", "/call/end", ...Object.keys(TOOLS)].includes(path)) return json(404, { error: "not found" });
       if (!authorised(req, cfg.brainSecret)) return json(401, { error: "unauthorised" });
 

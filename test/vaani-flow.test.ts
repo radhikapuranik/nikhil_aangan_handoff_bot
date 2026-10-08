@@ -38,7 +38,7 @@ test("generated Vaani instructions carry every script verbatim and the hard rule
   const t = buildAgentInstructions();
   for (const s of [PRICING_DEFLECTION, DECLINE_SCRIPT, ESCALATION_SCRIPT, "Good morning, Aangan Studio — how can I help you today?", "Will you be the one deciding on this, or is someone else involved too?", "Whereabouts is the property?", "What timeline are you working with?"])
     assert.ok(t.includes(s), s);
-  assert.ok(t.includes("NEVER ask about budget")); assert.ok(t.includes("Nashik")); assert.ok(t.includes("qualify_enquiry"));
+  assert.ok(t.includes("NEVER ask about budget")); assert.ok(t.includes("Nashik")); assert.ok(t.includes("aangan_desk"));
   assert.ok(!/₹|lakh per|per sq ?ft rate/i.test(t.replace(/one to one and a half lakh|1 lakh/gi, "")), "instructions must contain no price figure");
   const doc = buildToolsDoc("https://x.test");
   for (const tool of TOOLS) assert.ok(doc.includes(tool.name) && doc.includes("https://x.test" + tool.path));
@@ -79,7 +79,7 @@ test("parseTranscript accepts the common shapes and ignores junk", () => {
 
 test("tools require the shared secret", async () => {
   const { handle } = build();
-  for (const p of ["/tools/qualify", "/tools/availability", "/tools/book"]) {
+  for (const p of ["/tools/desk", "/tools/qualify", "/tools/availability", "/tools/book"]) {
     assert.equal((await post(handle, p, {}, null)).status, 401, p);
     assert.equal((await post(handle, p, {}, "wrong")).status, 401, p);
   }
@@ -174,4 +174,18 @@ test("webhook without a transcript falls back to what the tools recorded", async
   await hook(handle, { id: "evt_n", type: "call.completed", created: 1790000000, data: { call_id: "nt", duration_sec: 30 } });
   const rec = (await repo.getByProviderCallId("nt"))!;
   assert.equal(rec.verdict, "declined"); assert.equal(rec.auditIssues, null); // not audited: nothing to audit
+});
+
+test("one desk tool: action picks qualify, availability or book; unknown action is a clear error", async () => {
+  const { handle, calendar } = build();
+  const q = await (await post(handle, "/tools/desk", { action: "qualify", callId: "d1", serviceType: "restaurant" })).json() as any;
+  assert.equal(q.verdict, "declined"); assert.equal(q.say, DECLINE_SCRIPT);
+  const q2 = await (await post(handle, "/tools/desk", { action: "qualify", callId: "d2", serviceType: "full_home", intent: "full_execution", location: "Baner", timelineKind: "flexible", decisionMaker: "self", alreadyAsked: "project, location" })).json() as any;
+  assert.equal(q2.verdict, "qualified");
+  const av = await (await post(handle, "/tools/desk", { action: "availability", callId: "d2" })).json() as any;
+  assert.equal(av.slots.length, 2);
+  const bk = await (await post(handle, "/tools/desk", { action: "book", callId: "d2", slotStart: av.slots[0].start })).json() as any;
+  assert.equal(bk.confirmed, true); assert.equal(calendar.booked.length, 1);
+  const bad = await (await post(handle, "/tools/desk", { action: "dance" })).json() as any;
+  assert.equal(bad.error, true);
 });

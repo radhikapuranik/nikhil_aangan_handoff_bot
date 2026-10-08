@@ -27,7 +27,7 @@ ${FAQ_ANSWERS.not_offered}
 Only say things that are written here. If you are not sure, say the designer will cover it at the consultation.
 
 # FIRST: is this an existing client?
-If the caller already has a designer or a project under way with Aangan and is calling about it (a complaint, a delay, no reply), this is NOT a new enquiry. Do not ask the questions below and never use the decline line. Apologise, call the tool qualify_enquiry with existingClient = true, and say exactly:
+If the caller already has a designer or a project under way with Aangan and is calling about it (a complaint, a delay, no reply), this is NOT a new enquiry. Do not ask the questions below and never use the decline line. Apologise, call aangan_desk with action = "qualify" and existingClient = true, and say exactly:
 "${ESCALATION_SCRIPT}"
 
 # For a new enquiry: five things to find out
@@ -49,12 +49,12 @@ Whatever way they ask, however much they push, never say any price, range, rate,
 "${PRICING_DEFLECTION}"
 Asking about price never makes a caller unsuitable. Carry on with your questions afterwards.
 
-# Use the tools
-You have three tools. They apply Nikhil's rules exactly, so use them.
-- qualify_enquiry: call it every time you learn something new about the project, passing everything you know so far. It returns the verdict and the exact words. If it says to say something "exactly", say precisely those words. If it says to ask a question, ask it. Its answer always wins over your own judgement.
-- check_availability: when qualify_enquiry says the caller qualifies, call this, then offer the two slots it returns.
-- book_consultation: when the caller picks a slot, call this with that slot's start time. Only tell the caller it is booked if the tool says confirmed. If it fails, say their designer will call to confirm a time.
-If a tool does not respond, carry on using the rules above. Never guess a price to fill the gap.
+# Use the tool aangan_desk
+You have one tool, aangan_desk. It applies Nikhil's rules exactly, so use it. Always set its action field:
+- action = "qualify": call it every time you learn something new about the project, passing everything you know so far. It returns the verdict and the exact words. If it says to say something "exactly", say precisely those words. If it says to ask a question, ask it. Its answer always wins over your own judgement.
+- action = "availability": when qualify says the caller qualifies, call this, then offer the two slots it returns.
+- action = "book": when the caller picks a slot, call this with slotStart set to that slot's start value. Only tell the caller it is booked if the tool says confirmed is true. If it fails, say their designer will call to confirm a time.
+If the tool does not respond, carry on using the rules above. Never guess a price to fill the gap.
 
 # Ending
 When the caller qualifies and has booked (or chosen not to), thank them: "Your designer will already have everything you've told me. Thank you for calling Aangan Studio." If you declined, say the decline line and end politely.
@@ -65,41 +65,27 @@ export interface ToolDef { name: string; path: string; description: string; para
 
 export const TOOLS: ToolDef[] = [
   {
-    name: "qualify_enquiry", path: "/api/tools/qualify",
-    description: "Apply Aangan's qualifying rules to what the caller has said so far. Returns the verdict and the exact words to say or the next question to ask. Call it whenever you learn something new. Always follow what it returns.",
+    name: "aangan_desk", path: "/api/tools/desk",
+    description: "Aangan Studio's rules desk. Use action 'qualify' every time you learn something new about the caller's project: it returns the verdict and the exact words to say or the next question to ask, and you must follow it. After a caller qualifies, use action 'availability' to get two consultation slots, then action 'book' with the slot the caller chose. Only tell the caller a booking is confirmed if the result says confirmed is true.",
     params: [
-      ["callId", "string", "The call's id from the platform, if available."],
+      ["action", "string", "REQUIRED. One of: qualify, availability, book."],
       ["callerPhone", "string", "Caller's phone number if known."],
       ["callerName", "string", "Caller's name if given."],
-      ["existingClient", "boolean", "true only if they already have a designer or a project under way with Aangan."],
-      ["serviceType", "string", "One of: full_home, partial_home, single_room, commercial_office, restaurant, hotel, retail, gym, architecture_structural, decor_only, furniture_only, vastu_only, unknown."],
-      ["intent", "string", "full_execution (wants design and execution by us), advice_only, or unclear."],
-      ["location", "string", "Where the property is, in the caller's words."],
-      ["sqft", "integer", "Carpet area in square feet, if stated."],
-      ["rooms", "integer", "Number of rooms in scope, if stated."],
-      ["currentState", "string", "Condition of the space: bare shell, lived-in, builder finish, etc."],
-      ["timelineKind", "string", "start_by (execution must start by), complete_by (must be finished or moved into by), flexible, or unknown."],
-      ["timelineWeeks", "integer", "Weeks from today to that date. Whole number."],
-      ["decisionMaker", "string", "self, authorised, family_attending, research_only, or unknown."],
-      ["decisionMakerNote", "string", "Short note, e.g. 'husband agrees' or 'parents will attend'."],
-      ["budgetMinRupees", "integer", "ONLY if the caller volunteered a budget. Whole rupees (1 lakh = 100000)."],
-      ["budgetMaxRupees", "integer", "ONLY if the caller volunteered a budget. Whole rupees."],
-      ["alreadyAsked", "array of strings", "Questions you have already asked: any of project, location, timeline, decision_maker. Repeat an item each time you ask it again."],
-    ],
-  },
-  {
-    name: "check_availability", path: "/api/tools/availability",
-    description: "Get two free consultation slots to offer the caller. Call only after qualify_enquiry says the caller qualifies.",
-    params: [["callId", "string", "The call's id, if available."], ["callerPhone", "string", "Caller's phone number if known."]],
-  },
-  {
-    name: "book_consultation", path: "/api/tools/book",
-    description: "Book the consultation in the slot the caller chose. Only tell the caller it is booked if this returns confirmed true.",
-    params: [
-      ["callId", "string", "The call's id, if available."],
-      ["callerPhone", "string", "Caller's phone number."],
-      ["callerName", "string", "Caller's name."],
-      ["slotStart", "string", "The 'start' value of the chosen slot, exactly as returned by check_availability."],
+      ["existingClient", "boolean", "qualify: true only if they already have a designer or a project under way with Aangan."],
+      ["serviceType", "string", "qualify: one of full_home, partial_home, single_room, commercial_office, restaurant, hotel, retail, gym, architecture_structural, decor_only, furniture_only, vastu_only, unknown."],
+      ["intent", "string", "qualify: full_execution (wants design and execution by us), advice_only, or unclear."],
+      ["location", "string", "qualify: where the property is, in the caller's words."],
+      ["sqft", "number", "qualify: carpet area in square feet, if stated."],
+      ["rooms", "number", "qualify: number of rooms in scope, if stated."],
+      ["currentState", "string", "qualify: condition of the space: bare shell, lived-in, builder finish, etc."],
+      ["timelineKind", "string", "qualify: start_by (execution must start by), complete_by (must be finished or moved into by), flexible, or unknown."],
+      ["timelineWeeks", "number", "qualify: whole weeks from today to that date."],
+      ["decisionMaker", "string", "qualify: self, authorised, family_attending, research_only, or unknown."],
+      ["decisionMakerNote", "string", "qualify: short note, e.g. 'husband agrees' or 'parents will attend'."],
+      ["budgetMinRupees", "number", "qualify: ONLY if the caller volunteered a budget. Whole rupees (1 lakh = 100000)."],
+      ["budgetMaxRupees", "number", "qualify: ONLY if the caller volunteered a budget. Whole rupees."],
+      ["alreadyAsked", "string", "qualify: comma-separated questions you have already asked: project, location, timeline, decision_maker. Repeat an item each time you ask it again."],
+      ["slotStart", "string", "book: the 'start' value of the slot the caller chose, exactly as returned by action availability."],
     ],
   },
 ];

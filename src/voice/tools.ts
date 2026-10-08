@@ -47,7 +47,8 @@ export async function qualifyTool(d: SessionDeps, b: Record<string, unknown>) {
 
   // Which criteria the AI has already asked about; each repeat counts as one more ask.
   const asked: AskedCounts = {};
-  for (const x of Array.isArray(b.alreadyAsked) ? b.alreadyAsked : []) {
+  const askedList = Array.isArray(b.alreadyAsked) ? b.alreadyAsked : typeof b.alreadyAsked === "string" ? b.alreadyAsked.split(/[,;]/) : [];
+  for (const x of askedList.map((y) => String(y).trim())) {
     const c = ASK_NAMES[String(x).toLowerCase()];
     if (c) asked[c] = (asked[c] ?? 0) + 1;
   }

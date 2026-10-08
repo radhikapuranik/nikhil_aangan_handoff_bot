@@ -1634,7 +1634,8 @@ async function qualifyTool(d, b) {
     budgetMaxRupees: num2(b.budgetMaxRupees)
   }, prior);
   const asked = {};
-  for (const x of Array.isArray(b.alreadyAsked) ? b.alreadyAsked : []) {
+  const askedList = Array.isArray(b.alreadyAsked) ? b.alreadyAsked : typeof b.alreadyAsked === "string" ? b.alreadyAsked.split(/[,;]/) : [];
+  for (const x of askedList.map((y) => String(y).trim())) {
     const c = ASK_NAMES[String(x).toLowerCase()];
     if (c) asked[c] = (asked[c] ?? 0) + 1;
   }
@@ -1908,7 +1909,14 @@ function createHandler(d, cfg) {
         const r = await handleVaaniWebhook(d, raw, req.headers.get("x-vaanivoice-signature"), cfg.vaaniWebhookSecret);
         return json(r.status, r.body);
       }
-      const TOOLS = { "/tools/qualify": qualifyTool, "/tools/availability": availabilityTool, "/tools/book": bookTool };
+      const desk = (dd, body) => {
+        const a = String(body.action ?? "").toLowerCase();
+        if (a === "qualify") return qualifyTool(dd, body);
+        if (a === "availability" || a === "check_availability") return availabilityTool(dd, body);
+        if (a === "book" || a === "book_consultation") return bookTool(dd, body);
+        return Promise.resolve({ error: true, say: "Unknown action. Use action qualify, availability or book." });
+      };
+      const TOOLS = { "/tools/desk": desk, "/tools/qualify": qualifyTool, "/tools/availability": availabilityTool, "/tools/book": bookTool };
       if (!["/call/start", "/call/turn", "/call/end", ...Object.keys(TOOLS)].includes(path)) return json(404, { error: "not found" });
       if (!authorised(req, cfg.brainSecret)) return json(401, { error: "unauthorised" });
       if (path in TOOLS) {
