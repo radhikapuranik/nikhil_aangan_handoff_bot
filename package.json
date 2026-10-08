@@ -4,12 +4,19 @@
   "private": true,
   "type": "module",
   "description": "AI phone agent for Aangan Studio: inbound-call qualification, booking and designer handoff",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "test:transcripts": "node src/scripts/run-transcripts.ts",
     "serve": "node src/scripts/serve.ts",
     "simulate": "node src/scripts/simulate.ts",
-    "dashboard:dev": "node src/scripts/dashboard-dev.ts"
+    "dashboard:dev": "node src/scripts/dashboard-dev.ts",
+    "db:migrate": "node --env-file=.env src/scripts/migrate.ts",
+    "db:smoke": "node --env-file=.env src/scripts/db-smoke.ts"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }

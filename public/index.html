@@ -201,7 +201,7 @@ function render(d) {
   $("rangeLabel").textContent = `${d.daily[0]?.date ?? ""} to ${d.daily.at(-1)?.date ?? ""} (IST)`;
 
   const banners = [];
-  if (d.demo) banners.push(el("div", { class: "banner warn" }, "Sample data. These are not real calls. Connect Supabase to see live numbers."));
+  if (d.demo) banners.push(el("div", { class: "banner warn" }, "Sample data. These are not real calls. Connect the database to see live numbers."));
   if (s.cost.incomplete) banners.push(el("div", { class: "banner warn" }, "The cost total is incomplete, so the true cost is higher than shown: " + s.cost.incompleteReasons.join("; ") + "."));
   if (d.attention.length) banners.push(el("div", { class: "banner crit" }, `${d.attention.length} call${d.attention.length > 1 ? "s" : ""} need a person. See "Needs a person" below.`));
   $("banners").replaceChildren(...banners);

@@ -10,9 +10,9 @@ Be precise about this when asked.
 
 | Piece | Status |
 |---|---|
-| Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (72 automated tests, all pass; `npm test`) |
+| Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (79 automated tests, all pass; `npm test`) |
 | All 20 phone transcripts (T01-T20) | **Run through the logic**, 20/20 agree with expected verdicts (see [Testing](#testing)). This tests the *decisions* given facts, not speech understanding |
-| Call log, cost ledger, dashboard | **Built and tested against in-memory data and a stubbed database.** Dashboard viewed locally with *sample* data. Not yet run on real Supabase or Vercel |
+| Call log, cost ledger, dashboard | **Call log and cost ledger verified on the real Neon database** (schema applied; a test call written, read back through the dashboard query, then deleted). Dashboard viewed locally with *sample* data. Not yet run on Vercel |
 | Gemini, Cal.com, Telegram, HubSpot adapters | **Written to the vendors' documented APIs, tested against stubbed HTTP.** Never called live (no accounts yet). The Cal.com slots endpoint is from memory, not docs |
 | **Vaani Labs voice link** | **Not confirmed.** Vaani's public docs show no way for outside code to steer a call turn by turn. See [Open risk: Vaani](#open-risk-vaani) |
 | Real Gemini extraction (speech to facts) | **Untested.** It's the biggest unproven piece: the verdicts are only as good as the facts it reads |
@@ -45,7 +45,7 @@ Three layers enforce it, so a model slip can't leak a number: (1) a detector rec
 | **Claude Code** | Builds and maintains the project | The brief's requirement. Every step is a git commit |
 | **Vaani Labs** | Answers calls, speaks (including Indian languages and accents) | Built for India. Hinglish shows up in the enquiries (W03, a WhatsApp thread), so callers may mix languages. Per-second billing is documented. **Whether it can drive the conversation turn by turn is unconfirmed**, see below |
 | **Gemini Flash** (`gemini-3.5-flash-lite`) | Reads what the caller said into structured facts; routes general questions | Cheap and fast (about $0.30/$2.50 per million tokens in/out), so it adds well under ₹1 per call. It only *reads*: every decision is plain code, so verdicts are testable and the scripts can't be reworded |
-| **Supabase** | Call log, state, cost ledger | Postgres with a ready HTTP API, free tier. A call's in-progress state lives here, so any server can take the next turn |
+| **Neon** (Postgres) | Call log, state, cost ledger | Serverless Postgres, free tier, works from Vercel functions. A call's in-progress state lives here, so any server can take the next turn. (Supabase also works: the code supports both) |
 | **Cal.com** | Books the consultation inside the call | Free, has an API, books in seconds so there is no separate follow-up step. Needs an attendee email, which phone callers rarely give, so a placeholder is used (see limitations) |
 | **Telegram** | Sends the designer handoff | See the next section |
 | **HubSpot** | CRM | Qualified calls become deals automatically on the free tier. No deal amount is set, because the agent never estimates value |
@@ -75,7 +75,7 @@ Dashboard (Vercel) reads the call log.
 
 ## Testing
 
-`npm test` runs 72 tests. `npm run test:transcripts` prints the T01-T20 table.
+`npm test` runs 79 tests. `npm run test:transcripts` prints the T01-T20 table.
 
 `qualification-logic.md` contains only a **summary** of the validated results, not a per-call table, so I compared against *my reading* of the spec for each call. That reading is mine, and so are the hand-extracted facts, so agreement shows the logic is consistent with the spec, not that it was independently validated.
 
@@ -150,14 +150,14 @@ The qualification logic knows nothing about phones: it takes extracted facts and
 Requires Node 22.18+ (or 24). No dependencies to install.
 
 ```bash
-npm test                  # 72 tests
+npm test                  # 79 tests
 npm run test:transcripts  # T01-T20 table
 npm run simulate          # talk to the agent in the terminal (mock services)
 npm run dashboard:dev     # dashboard with SAMPLE data on :8788, password "demo"
 npm run serve             # local call endpoints on :8787
 ```
 
-Without keys everything runs on mocks. Each service switches to the real one as soon as its keys are in `.env` (copy `.env.example`). Database setup: run `db/migrations/001_init.sql` then `002_session_state_and_events.sql` in the Supabase SQL editor.
+Without keys everything runs on mocks. Each service switches to the real one as soon as its keys are in `.env` (copy `.env.example`). Database setup: put `DATABASE_URL` in `.env` and run `npm run db:migrate` (applies `db/migrations/*.sql` once each). `npm run db:smoke` writes and deletes one test call to check the connection.
 
 ## Layout
 
@@ -170,5 +170,5 @@ src/db/           repositories, recorder, summaries, dashboard data
 src/fixtures/     T01-T20 as facts, harness, sample-data seed
 public/, api/     dashboard page and Vercel functions
 db/migrations/    SQL
-test/             72 tests
+test/             79 tests
 ```
