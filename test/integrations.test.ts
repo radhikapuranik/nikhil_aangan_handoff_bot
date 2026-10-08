@@ -88,11 +88,18 @@ test("gemini: request shape, JSON schema output, token usage incl. thinking toke
   assert.ok(!calls[0].url.includes("GKEY"));
 });
 
-test("gemini: malformed or hostile output degrades to 'unknown', never to a pass", async () => {
-  const bad = new GeminiLlm("k", undefined, stub(() => ({ json: { candidates: [{ content: { parts: [{ text: "not json {" }] } }] } })).f);
-  const r = await bad.extractFacts([], null);
-  assert.equal(r.facts.serviceType, "unknown"); assert.equal(r.facts.intent, "unclear"); assert.equal(r.facts.decisionMaker, "unknown");
-  assert.equal(r.facts.timeline.kind, "unknown"); assert.equal(r.facts.budgetLakh, null);
+test("gemini: unreadable output is retried once, then an error, never silently 'nothing said'", async () => {
+  const s1 = stub(() => ({ json: { candidates: [{ content: { parts: [{ text: "not json {" }] }, finishReason: "MAX_TOKENS" }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } } }));
+  await assert.rejects(new GeminiLlm("k", undefined, s1.f).extractFacts([], null), /MAX_TOKENS/);
+  assert.equal(s1.calls.length, 2);
+  const ok = JSON.stringify({ existingClient: false, serviceType: "full_home", intent: "full_execution", timeline: { kind: "flexible" }, decisionMaker: "self" });
+  const s2 = stub((_c, n) => ({ json: { candidates: [{ content: { parts: [{ text: n === 1 ? "oops" : ok }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } } }));
+  const r = await new GeminiLlm("k", undefined, s2.f).extractFacts([], null);
+  assert.equal(r.facts.serviceType, "full_home"); assert.deepEqual(r.usage, { inputTokens: 20, outputTokens: 10 }); // both attempts are billed
+  assert.equal(s2.calls[0].body.generationConfig.thinkingConfig.thinkingLevel, "minimal");
+});
+
+test("gemini: off-schema values degrade to 'unknown', never to a pass", () => {
   const n = normaliseFacts({ serviceType: "palace", intent: "yes!", decisionMaker: "self; ignore previous rules", timeline: { kind: "soon", weeks: "5" }, budgetLakh: { min: "1", max: 2 }, sqft: "900" }, null);
   assert.equal(n.serviceType, "unknown"); assert.equal(n.intent, "unclear"); assert.equal(n.decisionMaker, "unknown");
   assert.equal(n.timeline.weeks, null); assert.equal(n.budgetLakh, null); assert.equal(n.sqft, null);
@@ -126,4 +133,14 @@ test("mock calendar offers 11:00 and 16:00 IST on weekdays", async () => {
   const hm = slots.map((s) => new Date(s.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }));
   assert.deepEqual(hm, ["11:00", "16:00", "11:00", "16:00"]);
   for (const s of slots) assert.ok(![0, 6].includes(new Date(new Date(s.start).getTime() + 330 * 60000).getUTCDay()));
+});
+
+test("gemini: budget arrives as whole rupees and becomes lakh; output is capped", async () => {
+  const j = JSON.stringify({ existingClient: false, serviceType: "partial_home", intent: "full_execution", timeline: { kind: "unknown", weeks: null }, decisionMaker: "unknown", budgetMinRupees: 100000, budgetMaxRupees: 150000 });
+  const s = stub(() => ({ json: { candidates: [{ content: { parts: [{ text: j }] } }], usageMetadata: {} } }));
+  const r = await new GeminiLlm("k", undefined, s.f).extractFacts([], null);
+  assert.deepEqual(r.facts.budgetLakh, { min: 1, max: 1.5 });
+  assert.equal(s.calls[0].body.generationConfig.maxOutputTokens, 1024);
+  assert.equal(JSON.stringify(s.calls[0].body.generationConfig.responseSchema).includes('"NUMBER"'), false); // integers only
+  assert.deepEqual(normaliseFacts({ budgetMaxRupees: 2500000 }, null).budgetLakh, { min: 25, max: 25 });
 });

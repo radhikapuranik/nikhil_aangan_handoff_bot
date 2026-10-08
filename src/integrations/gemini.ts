@@ -20,6 +20,8 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? 
 export function normaliseFacts(raw: Record<string, unknown>, prior: CallFacts | null): CallFacts {
   const t = (raw.timeline ?? {}) as Record<string, unknown>;
   const b = raw.budgetLakh as Record<string, unknown> | null | undefined;
+  const lo = num(raw.budgetMinRupees), hi = num(raw.budgetMaxRupees);
+  const fromRupees = lo !== null || hi !== null ? { min: (lo ?? hi!) / 100000, max: (hi ?? lo!) / 100000 } : null;
   const facts: CallFacts = {
     callerName: str(raw.callerName),
     phone: str(raw.phone),
@@ -36,7 +38,7 @@ export function normaliseFacts(raw: Record<string, unknown>, prior: CallFacts | 
     },
     decisionMaker: pick(raw.decisionMaker, DECISION_MAKERS, "unknown"),
     decisionMakerNote: str(raw.decisionMakerNote),
-    budgetLakh: b && num(b.min) !== null && num(b.max) !== null ? { min: num(b.min)!, max: num(b.max)! } : null,
+    budgetLakh: fromRupees ?? (b && num(b.min) !== null && num(b.max) !== null ? { min: num(b.min)!, max: num(b.max)! } : null),
   };
   if (facts.timeline.kind === "unknown") facts.timeline.weeks = null;
   // Information the caller gave earlier is not lost if a later pass misses it.
@@ -57,16 +59,16 @@ export function normaliseFacts(raw: Record<string, unknown>, prior: CallFacts | 
   return facts;
 }
 
-const EXTRACT_SYSTEM = `You read a phone conversation between a caller and the Aangan Studio interior design agent and record ONLY what the CALLER has actually said. Never infer, assume, or fill gaps; use null / "unknown" / "unclear" when the caller has not said it.
-- existingClient: true only if the caller already has a designer or an in-progress project with Aangan and is raising an issue about it.
+export const EXTRACT_SYSTEM = `You read a phone conversation between a caller and the Aangan Studio interior design agent and record ONLY what the CALLER has actually said. Never infer, assume, or fill gaps; use null / "unknown" / "unclear" when the caller has not said it.
+- existingClient: true ONLY if the caller already has a designer assigned or a project already under way with Aangan and is raising an issue about it. A caller chasing an earlier enquiry or a promised call-back, with no project under way, is a NEW enquiry: false.
 - serviceType: full_home (whole home), partial_home (2+ rooms or a floor), single_room, commercial_office (office/clinic/studio), or an out-of-scope type (restaurant, hotel, retail, gym, architecture_structural, decor_only, furniture_only, vastu_only).
 - intent: full_execution if they want design and execution done by the studio; advice_only if they only want ideas, advice, or will execute themselves; else unclear.
-- timeline: kind start_by (execution must start by) or complete_by (must be finished by) with weeks counted from today; flexible; or unknown.
+- timeline, weeks counted from today: kind start_by = the date execution (building work) must START; complete_by = the date the project must be FINISHED, or the caller must move in / be operational; flexible = no deadline; unknown = not stated. A date for starting DESIGN or a planning step is not an execution start: ignore it and use the move-in or finish date. If the caller first states a deadline and later floats a different date, keep the first stated deadline. If the conversation itself says how far away a date is (for example "Diwali is three weeks away"), use that figure instead of your own calendar knowledge; otherwise work it out from today's date.
 - decisionMaker: self; authorised (spouse/partner who is not on the call has told them to go ahead); family_attending (e.g. parents who will attend the consultation and decide); research_only (just researching for someone else, no confirmation they will be involved); else unknown.
-- budgetLakh: ONLY if the caller states a figure, in lakh. Otherwise null.
+- budgetMinRupees / budgetMaxRupees: ONLY if the caller states a budget figure, as whole rupees (1 lakh = 100000, so "1 to 1.5 lakh" is 100000 and 150000; a single figure goes in both). Otherwise null. Use whole numbers for every number field.
 Today is {TODAY}.`;
 
-const EXTRACT_SCHEMA = {
+export const EXTRACT_SCHEMA = {
   type: "OBJECT",
   properties: {
     callerName: { type: "STRING", nullable: true },
@@ -75,22 +77,24 @@ const EXTRACT_SCHEMA = {
     serviceType: { type: "STRING", enum: SERVICE_TYPES },
     intent: { type: "STRING", enum: INTENTS },
     location: { type: "STRING", nullable: true },
-    sqft: { type: "NUMBER", nullable: true },
-    rooms: { type: "NUMBER", nullable: true },
+    sqft: { type: "INTEGER", nullable: true },
+    rooms: { type: "INTEGER", nullable: true },
     currentState: { type: "STRING", nullable: true },
     timeline: {
       type: "OBJECT",
-      properties: { kind: { type: "STRING", enum: [...TIMELINE_KINDS] }, weeks: { type: "NUMBER", nullable: true } },
+      properties: { kind: { type: "STRING", enum: [...TIMELINE_KINDS] }, weeks: { type: "INTEGER", nullable: true } },
       required: ["kind"],
     },
     decisionMaker: { type: "STRING", enum: DECISION_MAKERS },
     decisionMakerNote: { type: "STRING", nullable: true },
-    budgetLakh: { type: "OBJECT", nullable: true, properties: { min: { type: "NUMBER" }, max: { type: "NUMBER" } } },
+    // Whole rupees, not lakh: a decimal like 1.5 made the model loop on zeros.
+    budgetMinRupees: { type: "INTEGER", nullable: true },
+    budgetMaxRupees: { type: "INTEGER", nullable: true },
   },
   required: ["existingClient", "serviceType", "intent", "timeline", "decisionMaker"],
 };
 
-const asText = (t: TranscriptTurn[]) => t.map((x) => `${x.speaker === "agent" ? "Agent" : "Caller"}: ${x.text}`).join("\n");
+export const asText = (t: TranscriptTurn[]) => t.map((x) => `${x.speaker === "agent" ? "Agent" : "Caller"}: ${x.text}`).join("\n");
 
 export class GeminiLlm implements LlmService {
   private apiKey: string;
@@ -106,25 +110,36 @@ export class GeminiLlm implements LlmService {
   }
 
   private async generate(system: string, user: string, schema: object): Promise<{ json: Record<string, unknown>; usage: Usage }> {
-    const res = await this.fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: schema },
-      }),
-    });
-    if (!res.ok) throw new Error(`Gemini ${this.model} -> ${res.status}: ${await res.text()}`);
-    const body = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
-    };
-    const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-    let json: Record<string, unknown> = {};
-    try { json = JSON.parse(text); } catch { /* handled by normalisers: empty object -> all unknown */ }
-    const u = body.usageMetadata ?? {};
-    return { json, usage: { inputTokens: u.promptTokenCount ?? 0, outputTokens: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) } };
+    let lastReason = "";
+    const total: Usage = { inputTokens: 0, outputTokens: 0 };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await this.fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          // "minimal" switches off hidden reasoning: it cost about 4x more per call and is not needed for reading facts.
+          generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: "application/json", responseSchema: schema, thinkingConfig: { thinkingLevel: "minimal" } },
+        }),
+      });
+      if (!res.ok) throw new Error(`Gemini ${this.model} -> ${res.status}: ${await res.text()}`);
+      const body = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+      };
+      const u = body.usageMetadata ?? {};
+      total.inputTokens += u.promptTokenCount ?? 0;
+      total.outputTokens += (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0);
+      const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+      lastReason = body.candidates?.[0]?.finishReason ?? "no candidate";
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return { json: parsed as Record<string, unknown>, usage: total };
+      } catch { /* retry once, then fail loudly */ }
+    }
+    // Never turn an unreadable answer into "nothing was said": that would forward or decline a caller on no evidence.
+    throw new Error(`Gemini returned no usable JSON (finishReason ${lastReason})`);
   }
 
   async triage(utterance: string) {

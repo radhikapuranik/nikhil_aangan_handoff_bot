@@ -10,12 +10,13 @@ Be precise about this when asked.
 
 | Piece | Status |
 |---|---|
-| Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (79 automated tests, all pass; `npm test`) |
+| Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (81 automated tests, all pass; `npm test`) |
 | All 20 phone transcripts (T01-T20) | **Run through the logic**, 20/20 agree with expected verdicts (see [Testing](#testing)). This tests the *decisions* given facts, not speech understanding |
 | Call log, cost ledger, dashboard | **Call log and cost ledger verified on the real Neon database** (schema applied; a test call written, read back through the dashboard query, then deleted). Dashboard viewed locally with *sample* data. Not yet run on Vercel |
-| Gemini, Cal.com, Telegram, HubSpot adapters | **Written to the vendors' documented APIs, tested against stubbed HTTP.** Never called live (no accounts yet). The Cal.com slots endpoint is from memory, not docs |
+| **Gemini** (speech to facts) | **Verified live.** The real T01-T20 conversations, read turn by turn by `gemini-3.5-flash-lite` as a live call would, give **19/19 matching verdicts** (`npm run live:extract`). Caveat: I tuned the instructions against these same 19 calls, so this shows the approach works, not how it does on unseen calls |
+| Telegram, Cal.com | **Credentials verified** with read-only calls (bot sees the group; event types listed). No message sent and no booking made yet. The Cal.com slots endpoint is from memory, not docs |
+| HubSpot | **Written to the documented API, but the token lacks the Deals permission**, so it has never created a deal |
 | **Vaani Labs voice link** | **Not confirmed.** Vaani's public docs show no way for outside code to steer a call turn by turn. See [Open risk: Vaani](#open-risk-vaani) |
-| Real Gemini extraction (speech to facts) | **Untested.** It's the biggest unproven piece: the verdicts are only as good as the facts it reads |
 
 Nothing here has taken a real call yet.
 
@@ -75,7 +76,7 @@ Dashboard (Vercel) reads the call log.
 
 ## Testing
 
-`npm test` runs 79 tests. `npm run test:transcripts` prints the T01-T20 table.
+`npm test` runs 81 tests. `npm run live:extract` runs the real conversations through live Gemini (needs `GEMINI_API_KEY`). `npm run test:transcripts` prints the T01-T20 table.
 
 `qualification-logic.md` contains only a **summary** of the validated results, not a per-call table, so I compared against *my reading* of the spec for each call. That reading is mine, and so are the hand-extracted facts, so agreement shows the logic is consistent with the spec, not that it was independently validated.
 
@@ -118,14 +119,15 @@ What I built works either way: a stateless "brain" the voice platform calls (`/a
 The ledger records every billable event per call. All rates are estimates until confirmed.
 
 - Voice: 4 paise/sec = ₹2.40/min, from Vaani's API page. Their pricing page says pricing is sales-led, so confirm. **Telephony (Twilio) is not included.**
-- Gemini: about ₹0.15-0.25 per call at the listed token prices.
+- Gemini: **measured** about ₹0.13 per call (19 real conversations, about 3 model reads each, ₹2.43 in total). Switching off the model's hidden reasoning cut this ~6x; left on, it cost ₹0.80 per single read.
 - Cal.com, Telegram, HubSpot, Supabase, Vercel: ₹0 on free tiers.
 - A 4-minute call is therefore roughly ₹10 before telephony. If all ~200 monthly enquiries were calls, that is about ₹2,000 a month in usage, plus fixed fees. This is an estimate from documented rates, not a measurement.
 - **Unknown or unrecorded costs are never shown as zero.** The dashboard flags the total as incomplete and says why, until fixed fees (number rental, plan fees) are entered.
 
 ## Known limitations and what I'd do with more time
 
-- **Nothing is live.** No call has gone through real Vaani, Gemini, Cal.com, Telegram or HubSpot. First job: run T01-T20 transcript text through real Gemini and check the extracted facts.
+- **No real call has happened.** Gemini and the Neon database are verified live; Vaani, Cal.com booking, Telegram messages and HubSpot deals are not. The Gemini check used the 19 calls I tuned against, so it needs a fresh set of calls to mean more.
+- **Gemini over-reads "self".** It sometimes marks the caller as the decision-maker when they never said (T02), which skips the flag the designer should see. Worth tightening with real calls.
 - **Voice, telephony and the Vaani link** are unresolved (above).
 - **Speech understanding is the weak point.** Accents, noise, callers who answer two questions at once, and Hindi/Marathi mixed in. Real calls will need review and tuning, and a human-review queue for low-confidence extractions.
 - **Callbacks never close.** Urgent escalations stay on the "Needs a person" list because nothing marks them done. A Telegram reply or dashboard button should.
@@ -150,7 +152,7 @@ The qualification logic knows nothing about phones: it takes extracted facts and
 Requires Node 22.18+ (or 24). No dependencies to install.
 
 ```bash
-npm test                  # 79 tests
+npm test                  # 81 tests
 npm run test:transcripts  # T01-T20 table
 npm run simulate          # talk to the agent in the terminal (mock services)
 npm run dashboard:dev     # dashboard with SAMPLE data on :8788, password "demo"
@@ -170,5 +172,5 @@ src/db/           repositories, recorder, summaries, dashboard data
 src/fixtures/     T01-T20 as facts, harness, sample-data seed
 public/, api/     dashboard page and Vercel functions
 db/migrations/    SQL
-test/             79 tests
+test/             81 tests
 ```

@@ -14,7 +14,8 @@
     "simulate": "node src/scripts/simulate.ts",
     "dashboard:dev": "node src/scripts/dashboard-dev.ts",
     "db:migrate": "node --env-file=.env src/scripts/migrate.ts",
-    "db:smoke": "node --env-file=.env src/scripts/db-smoke.ts"
+    "db:smoke": "node --env-file=.env src/scripts/db-smoke.ts",
+    "live:extract": "node --env-file=.env src/scripts/live-extraction.ts"
   },
   "dependencies": {
     "pg": "^8.23.1"
