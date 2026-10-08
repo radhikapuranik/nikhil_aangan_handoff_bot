@@ -11,7 +11,8 @@ import { finalizeCall } from "./finalize.ts";
 // ("no sub-field is guaranteed"), so every field below is optional.
 
 export function verifySignature(rawBody: string, header: string | null, secret: string): boolean {
-  if (!header || !header.startsWith("sha256=")) return false;
+  // No secret configured means nothing can be verified: reject, never sign with an empty key.
+  if (!secret || !header || !header.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   const got = header.slice("sha256=".length);
   const a = Buffer.from(expected, "utf8"), b = Buffer.from(got, "utf8");

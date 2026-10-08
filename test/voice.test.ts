@@ -108,6 +108,9 @@ test("webhook: signature is checked over the raw body", async () => {
   assert.equal(verifySignature("body", null, WH), false);
   assert.equal(verifySignature("body", "md5=abc", WH), false);
   assert.equal(verifySignature("body", sign("body"), WH), true);
+  // A forged event signed with an empty key must fail when no secret is configured.
+  const forged = "sha256=" + createHmac("sha256", "").update("body").digest("hex");
+  assert.equal(verifySignature("body", forged, ""), false);
 });
 
 test("webhook: Vaani retries (same evt id) are applied once", async () => {
