@@ -780,7 +780,7 @@ var CalComCalendar = class {
   eventTypeId;
   emailFallback;
   fetchImpl;
-  constructor(apiKey, eventTypeId, emailFallback = "{phone}@calls.aangan.example", fetchImpl = fetch) {
+  constructor(apiKey, eventTypeId, emailFallback = "", fetchImpl = fetch) {
     this.apiKey = apiKey;
     this.eventTypeId = eventTypeId;
     this.emailFallback = emailFallback;
@@ -803,6 +803,7 @@ var CalComCalendar = class {
     return picked.map((start) => ({ start, label: slotLabel(start) }));
   }
   async book(a) {
+    if (!this.emailFallback.includes("@")) throw new Error("CALCOM_EMAIL_FALLBACK is not set (needs a real inbox, e.g. studio+{phone}@yourdomain.com)");
     const digits = (a.phone ?? "unknown").replace(/\D/g, "") || "unknown";
     const res = await this.fetchImpl("https://api.cal.com/v2/bookings", {
       method: "POST",

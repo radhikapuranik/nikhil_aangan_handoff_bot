@@ -18,7 +18,7 @@ export class CalComCalendar implements Calendar {
   private emailFallback: string;
   private fetchImpl: typeof fetch;
 
-  constructor(apiKey: string, eventTypeId: number, emailFallback = "{phone}@calls.aangan.example", fetchImpl: typeof fetch = fetch) {
+  constructor(apiKey: string, eventTypeId: number, emailFallback = "", fetchImpl: typeof fetch = fetch) {
     this.apiKey = apiKey;
     this.eventTypeId = eventTypeId;
     this.emailFallback = emailFallback;
@@ -44,8 +44,10 @@ export class CalComCalendar implements Calendar {
   }
 
   async book(a: { slot: Slot; name: string | null; phone: string | null; notes: string }) {
-    // Cal.com requires an attendee email; callers on a phone line rarely give
-    // one, so use a placeholder derived from the phone number.
+    // Cal.com requires an attendee email and checks that its domain can receive
+    // mail (a made-up domain is rejected). Callers on a phone line rarely give
+    // one, so use a "+" alias of a real studio inbox, e.g. studio+{phone}@domain.
+    if (!this.emailFallback.includes("@")) throw new Error("CALCOM_EMAIL_FALLBACK is not set (needs a real inbox, e.g. studio+{phone}@yourdomain.com)");
     const digits = (a.phone ?? "unknown").replace(/\D/g, "") || "unknown";
     const res = await this.fetchImpl("https://api.cal.com/v2/bookings", {
       method: "POST",

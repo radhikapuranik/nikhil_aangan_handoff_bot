@@ -54,14 +54,15 @@ test("hubspot: a contact or association failure never loses the deal", async () 
 
 test("cal.com: booking request shape, placeholder email from phone, uid returned", async () => {
   const { f, calls } = stub(() => ({ json: { data: { uid: "abc123", start: "2026-10-09T05:30:00.000Z" } } }));
-  const cal = new CalComCalendar("cal_KEY", 42, undefined, f);
+  const cal = new CalComCalendar("cal_KEY", 42, "studio+{phone}@real-domain.test", f);
   const r = await cal.book({ slot: { start: "2026-10-09T05:30:00Z", label: "x" }, name: "Priya", phone: "+91 98000 00001", notes: "note" });
   assert.deepEqual(r, { ref: "abc123", start: "2026-10-09T05:30:00.000Z" });
   assert.equal(calls[0].url, "https://api.cal.com/v2/bookings");
   assert.equal(calls[0].headers["cal-api-version"], "2026-02-25");
   assert.equal(calls[0].headers.Authorization, "Bearer cal_KEY");
   assert.equal(calls[0].body.eventTypeId, 42); assert.equal(calls[0].body.attendee.timeZone, "Asia/Kolkata");
-  assert.equal(calls[0].body.attendee.email, "919800000001@calls.aangan.example");
+  assert.equal(calls[0].body.attendee.email, "studio+919800000001@real-domain.test");
+  await assert.rejects(new CalComCalendar("k", 1, undefined, f).book({ slot: { start: "x", label: "x" }, name: null, phone: "1", notes: "" }), /CALCOM_EMAIL_FALLBACK/);
   assert.equal(calls[0].body.bookingFieldsResponses.notes, "note");
 });
 
