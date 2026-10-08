@@ -3,7 +3,7 @@
 For each tool below: method **POST**, header `Authorization: Bearer <your BRAIN_SHARED_SECRET>`, body type JSON. Replace the base URL with your deployed address.
 
 ## aangan_desk
-- URL: `https://aangan-phone-agent.vercel.app/api/tools/desk`
+- URL: `https://YOUR-DEPLOYMENT.vercel.app/api/tools/desk`
 - Description (paste this): Aangan Studio's rules desk. Use action 'qualify' every time you learn something new about the caller's project: it returns the verdict and the exact words to say or the next question to ask, and you must follow it. After a caller qualifies, use action 'availability' to get two consultation slots, then action 'book' with the slot the caller chose. Only tell the caller a booking is confirmed if the result says confirmed is true.
 
 | Parameter | Type | Meaning |
@@ -28,4 +28,4 @@ For each tool below: method **POST**, header `Authorization: Bearer <your BRAIN_
 | `slotStart` | string | book: the 'start' value of the slot the caller chose, exactly as returned by action availability. |
 
 ## Webhook
-Create a webhook for **call.completed** (and call.failed) pointing at `https://aangan-phone-agent.vercel.app/api/webhooks/vaani`. Put the signing secret Vaani shows you (starts `vv_whk_`) in `VAANI_WEBHOOK_SECRET`.
+Create a webhook for **call.completed** (and call.failed) pointing at `https://YOUR-DEPLOYMENT.vercel.app/api/webhooks/vaani`. Put the signing secret Vaani shows you (starts `vv_whk_`) in `VAANI_WEBHOOK_SECRET`.

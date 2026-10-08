@@ -37,8 +37,16 @@ export async function completeCall(d: SessionDeps, rec: CallRecord, o: CallOutco
   let crm: { status: CrmStatus; dealId?: string } | undefined;
 
   if (dec?.verdict === "qualified" && o.facts) {
+    // Not booked in the call: give the designer free slots to offer when they phone back.
+    let suggested: string[] | undefined;
+    if (o.booking.status !== "booked") {
+      try {
+        suggested = (await d.calendar.findSlots(3, new Date())).map((x) => x.label);
+        costs.push(calcomCost(rates));
+      } catch { /* the note is still useful without slots */ }
+    }
     const note = buildHandoffNote(o.facts, dec, {
-      booked: o.booking.status === "booked",
+      booked: o.booking.status === "booked", suggested,
       when: o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : undefined,
     });
     try { await d.notifier.send("designers", note); costs.push(telegramCost(rates)); handoff = { status: "sent" }; }

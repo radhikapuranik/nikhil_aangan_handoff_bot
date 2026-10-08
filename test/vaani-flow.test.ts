@@ -38,7 +38,11 @@ test("generated Vaani instructions carry every script verbatim and the hard rule
   const t = buildAgentInstructions();
   for (const s of [PRICING_DEFLECTION, DECLINE_SCRIPT, ESCALATION_SCRIPT, "Good morning, Aangan Studio — how can I help you today?", "Will you be the one deciding on this, or is someone else involved too?", "Whereabouts is the property?", "What timeline are you working with?"])
     assert.ok(t.includes(s), s);
-  assert.ok(t.includes("NEVER ask about budget")); assert.ok(t.includes("Nashik")); assert.ok(t.includes("aangan_desk"));
+  assert.ok(t.includes("NEVER ask about budget")); assert.ok(t.includes("Nashik"));
+  assert.ok(!t.includes("aangan_desk"), "default prompt must not mention a tool the AI may read aloud");
+  assert.ok(t.includes("You cannot book appointments yourself"));
+  const withTool = buildAgentInstructions({ useTool: true });
+  assert.ok(withTool.includes("@aangan_desk") && withTool.includes(PRICING_DEFLECTION));
   assert.ok(!/₹|lakh per|per sq ?ft rate/i.test(t.replace(/one to one and a half lakh|1 lakh/gi, "")), "instructions must contain no price figure");
   const doc = buildToolsDoc("https://x.test");
   for (const tool of TOOLS) assert.ok(doc.includes(tool.name) && doc.includes("https://x.test" + tool.path));
@@ -256,4 +260,20 @@ test("native webhook: matches the call the desk tool opened, by time, since Vaan
   const ts = new Date(NOW.getTime() + 3 * 60000).toISOString();
   await nativePost(handle, { ...post_event, timestamp: ts, data: { ...post_event.data, call_duration: 150000 } });
   assert.equal(repo.calls.size, 1); assert.equal([...repo.calls.values()][0].providerCallId, "inbound-1-abc");
+});
+
+test("a qualified call that was not booked in the call hands the designer free slots to offer", async () => {
+  const { handle, notifier, repo } = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+  await nativePost(handle, post_event);
+  assert.equal(notifier.sent.length, 1);
+  assert.ok(notifier.sent[0].text.includes("Consultation booked: no"));
+  assert.ok(notifier.sent[0].text.includes("Free slots to offer the caller:"));
+  assert.ok(repo.costs.some((c) => c.service === "calcom"));
+});
+
+test("audit treats expanded contractions as the same words (you'd = you would)", () => {
+  const t = turns(["caller", "how much?"], ["agent", PRICING_DEFLECTION.replace("you'd", "you would")]);
+  assert.deepEqual(auditAgentTurns(t, { verdict: "qualified" }), []);
+  const tampered = turns(["caller", "how much?"], ["agent", PRICING_DEFLECTION.replace("site,", "site and")]);
+  assert.deepEqual(auditAgentTurns(tampered, { verdict: "qualified" }), ["pricing_line_not_verbatim"]);
 });

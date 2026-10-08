@@ -1,6 +1,6 @@
 import type { CallFacts, Decision } from "./types.ts";
 
-export interface BookingInfo { booked: boolean; when?: string }
+export interface BookingInfo { booked: boolean; when?: string; suggested?: string[] }
 
 // Field order follows "Handoff note format" in qualification-logic.md.
 export function buildHandoffNote(f: CallFacts, d: Decision, booking: BookingInfo): string {
@@ -31,5 +31,6 @@ export function buildHandoffNote(f: CallFacts, d: Decision, booking: BookingInfo
     `Decision-maker: ${dm[f.decisionMaker]}${f.decisionMakerNote ? " — " + f.decisionMakerNote : ""}`,
     `Uncertainty flags: ${d.flags.length ? d.flags.join("; ") : "none"}`,
     `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " — " + booking.when : "") : "no"}`,
+    ...(!booking.booked && booking.suggested?.length ? [`Free slots to offer the caller: ${booking.suggested.join(" | ")}`] : []),
   ].join("\n");
 }

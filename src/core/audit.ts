@@ -6,8 +6,11 @@ import type { TranscriptTurn } from "../db/types.ts";
 // words. This checks, after the call, what the agent actually said.
 
 // Wording differences that are not real differences: case, spacing, dash and quote styles.
+// "you'd" and "you would" are the same words once spoken, so expand common contractions first.
+const expand = (s: string) => s.replace(/\b(\w+)'d\b/gi, "$1 would").replace(/\b(\w+)'ll\b/gi, "$1 will").replace(/\b(\w+)n't\b/gi, "$1 not").replace(/\b(\w+)'re\b/gi, "$1 are").replace(/\b(\w+)'ve\b/gi, "$1 have");
+
 export const normalise = (s: string) =>
-  s.toLowerCase().replace(/[—–\-]+/g, " ").replace(/[‘’']/g, "'").replace(/[^\p{L}\p{N}' ]/gu, " ").replace(/\s+/g, " ").trim();
+  expand(s.replace(/[\u2018\u2019]/g, "'")).toLowerCase().replace(/[—–\-]+/g, " ").replace(/[‘’']/g, "'").replace(/[^\p{L}\p{N}' ]/gu, " ").replace(/\s+/g, " ").trim();
 
 export type AuditIssue = "price_quoted" | "pricing_line_not_verbatim" | "decline_line_not_verbatim" | "booked_despite_verdict";
 

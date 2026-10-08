@@ -1190,7 +1190,8 @@ function buildHandoffNote(f2, d, booking) {
     `Budget signal: ${budget}`,
     `Decision-maker: ${dm[f2.decisionMaker]}${f2.decisionMakerNote ? " \u2014 " + f2.decisionMakerNote : ""}`,
     `Uncertainty flags: ${d.flags.length ? d.flags.join("; ") : "none"}`,
-    `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " \u2014 " + booking.when : "") : "no"}`
+    `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " \u2014 " + booking.when : "") : "no"}`,
+    ...!booking.booked && booking.suggested?.length ? [`Free slots to offer the caller: ${booking.suggested.join(" | ")}`] : []
   ].join("\n");
 }
 
@@ -1240,7 +1241,8 @@ function pricingResponse() {
 }
 
 // src/core/audit.ts
-var normalise = (s) => s.toLowerCase().replace(/[—–\-]+/g, " ").replace(/[‘’']/g, "'").replace(/[^\p{L}\p{N}' ]/gu, " ").replace(/\s+/g, " ").trim();
+var expand = (s) => s.replace(/\b(\w+)'d\b/gi, "$1 would").replace(/\b(\w+)'ll\b/gi, "$1 will").replace(/\b(\w+)n't\b/gi, "$1 not").replace(/\b(\w+)'re\b/gi, "$1 are").replace(/\b(\w+)'ve\b/gi, "$1 have");
+var normalise = (s) => expand(s.replace(/[\u2018\u2019]/g, "'")).toLowerCase().replace(/[—–\-]+/g, " ").replace(/[‘’']/g, "'").replace(/[^\p{L}\p{N}' ]/gu, " ").replace(/\s+/g, " ").trim();
 var numbersIn = (s) => (s.match(/\d[\d,]*\.?\d*/g) ?? []).map((n) => n.replace(/,/g, ""));
 function quotesPrice(turns, i) {
   const t = turns[i];
@@ -1280,8 +1282,17 @@ async function completeCall(d, rec, o) {
   let handoff;
   let crm;
   if (dec?.verdict === "qualified" && o.facts) {
+    let suggested;
+    if (o.booking.status !== "booked") {
+      try {
+        suggested = (await d.calendar.findSlots(3, /* @__PURE__ */ new Date())).map((x) => x.label);
+        costs.push(calcomCost(rates));
+      } catch {
+      }
+    }
     const note = buildHandoffNote(o.facts, dec, {
       booked: o.booking.status === "booked",
+      suggested,
       when: o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : void 0
     });
     try {
