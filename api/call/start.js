@@ -1190,7 +1190,7 @@ function buildHandoffNote(f2, d, booking) {
     `Budget signal: ${budget}`,
     `Decision-maker: ${dm[f2.decisionMaker]}${f2.decisionMakerNote ? " \u2014 " + f2.decisionMakerNote : ""}`,
     `Uncertainty flags: ${d.flags.length ? d.flags.join("; ") : "none"}`,
-    `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " \u2014 " + booking.when : "") : "no"}`,
+    booking.provisional ? `Consultation: PROVISIONALLY BOOKED${booking.when ? " for " + booking.when : ""}. The caller was told only that the designer will call to confirm a time, so please phone them to confirm or move it.` : `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " \u2014 " + booking.when : "") : "no"}`,
     ...!booking.booked && booking.suggested?.length ? [`Free slots to offer the caller: ${booking.suggested.join(" | ")}`] : []
   ].join("\n");
 }
@@ -1283,17 +1283,36 @@ async function completeCall(d, rec, o) {
   let crm;
   if (dec?.verdict === "qualified" && o.facts) {
     let suggested;
-    if (o.booking.status !== "booked") {
+    let provisional = null;
+    if (o.booking.status !== "booked" && o.booking.status !== "declined_by_caller") {
       try {
-        suggested = (await d.calendar.findSlots(3, /* @__PURE__ */ new Date())).map((x) => x.label);
+        const slots = await d.calendar.findSlots(3, /* @__PURE__ */ new Date());
         costs.push(calcomCost(rates));
+        if (d.autoBook !== false && slots.length) {
+          try {
+            const first = slots[0];
+            const made = await d.calendar.book({
+              slot: first,
+              name: o.facts.callerName ?? null,
+              phone: o.facts.phone ?? rec.callerPhone ?? null,
+              notes: buildHandoffNote(o.facts, dec, { booked: false, provisional: true, when: first.label })
+            });
+            costs.push(calcomCost(rates));
+            provisional = { time: made.start, ref: made.ref, label: first.label };
+            suggested = slots.slice(1).map((x) => x.label);
+          } catch {
+            suggested = slots.map((x) => x.label);
+          }
+        } else suggested = slots.map((x) => x.label);
       } catch {
       }
     }
+    if (provisional) o.booking = { status: "provisional", time: provisional.time, ref: provisional.ref };
     const note = buildHandoffNote(o.facts, dec, {
       booked: o.booking.status === "booked",
       suggested,
-      when: o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : void 0
+      provisional: Boolean(provisional),
+      when: provisional?.label ?? (o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : void 0)
     });
     try {
       await d.notifier.send("designers", note);
@@ -2030,7 +2049,7 @@ var once = (k, f2) => cache.has(k) ? cache.get(k) : (cache.set(k, f2()), cache.g
 function brainHandler(env = process.env) {
   return once("brain", () => {
     const integ = createIntegrations(env);
-    const deps = { ...integ, repo: createRepository(env) };
+    const deps = { ...integ, repo: createRepository(env), autoBook: env.AUTO_BOOK !== "0" };
     return createHandler(deps, { brainSecret: env.BRAIN_SHARED_SECRET ?? "", vaaniWebhookSecret: env.VAANI_WEBHOOK_SECRET ?? "", vaaniApiKey: env.VAANI_API_KEY });
   });
 }

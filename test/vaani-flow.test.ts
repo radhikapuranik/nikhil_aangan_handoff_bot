@@ -262,13 +262,47 @@ test("native webhook: matches the call the desk tool opened, by time, since Vaan
   assert.equal(repo.calls.size, 1); assert.equal([...repo.calls.values()][0].providerCallId, "inbound-1-abc");
 });
 
-test("a qualified call that was not booked in the call hands the designer free slots to offer", async () => {
-  const { handle, notifier, repo } = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+test("after the call, a qualified caller is auto-booked provisionally and the designer is told to confirm", async () => {
+  const { handle, notifier, repo, calendar } = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
   await nativePost(handle, post_event);
-  assert.equal(notifier.sent.length, 1);
-  assert.ok(notifier.sent[0].text.includes("Consultation booked: no"));
-  assert.ok(notifier.sent[0].text.includes("Free slots to offer the caller:"));
-  assert.ok(repo.costs.some((c) => c.service === "calcom"));
+  const rec = (await repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.equal(rec.bookingStatus, "provisional"); assert.ok(rec.bookingRef); assert.ok(rec.bookingTime);
+  assert.equal(calendar.booked.length, 1); assert.ok(calendar.booked[0].notes.includes("PROVISIONALLY BOOKED"));
+  assert.ok(notifier.sent[0].text.includes("PROVISIONALLY BOOKED") && notifier.sent[0].text.includes("phone them to confirm"));
+  assert.ok(notifier.sent[0].text.includes("Free slots to offer the caller:")); // alternatives if the first does not suit
+  assert.equal(repo.costs.filter((c) => c.service === "calcom").length, 2); // slots lookup + booking
+  const s = summarise([rec], [], [{ service: "n", monthlyInr: 0, activeFrom: "2020-01-01", activeTo: null }], { from: "2020-01-01T00:00:00Z", to: "2030-01-01T00:00:00Z" });
+  assert.equal(s.consultationsBooked, 1); assert.equal(s.consultationsProvisional, 1);
+});
+
+test("auto-booking falls back to listing slots when the calendar refuses, and can be switched off", async () => {
+  const a = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+  a.calendar.failNext = true;
+  await nativePost(a.handle, post_event);
+  const rec = (await a.repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.notEqual(rec.bookingStatus, "provisional"); assert.equal(rec.handoffStatus, "sent");
+  assert.ok(a.notifier.sent[0].text.includes("Free slots to offer the caller:") && !a.notifier.sent[0].text.includes("PROVISIONALLY"));
+
+  const b = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+  b.deps.autoBook = false;
+  await nativePost(b.handle, post_event);
+  assert.equal(b.calendar.booked.length, 0); assert.ok(b.notifier.sent[0].text.includes("Free slots to offer the caller:"));
+});
+
+test("declined, deferred and already-booked calls are never auto-booked", async () => {
+  const decl = nativeHandler(() => ({ status: 200, body: { transcription: "AGENT: Hello\nUSER: I want a restaurant designed" } }));
+  const d2 = build(fx("T19")); // restaurant
+  const h = createHandler(d2.deps, { brainSecret: SECRET, vaaniWebhookSecret: "", vaaniApiKey: "k", fetchImpl: (async () => new Response(JSON.stringify({ transcription: "AGENT: Hello\nUSER: I want a restaurant designed" }), { status: 200 })) as unknown as typeof fetch });
+  await nativePost(h, { ...post_event, call_id: "decl-1" });
+  assert.equal(d2.calendar.booked.length, 0); assert.equal((await d2.repo.getByProviderCallId("decl-1"))!.verdict, "declined");
+  void decl;
+  // booked in the call via the tool: not booked a second time
+  const t = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
+  const av = await (await post(t.handle, "/tools/desk", { action: "availability", callId: "inbound-1-abc" })).json() as any;
+  await post(t.handle, "/tools/desk", { action: "qualify", callId: "inbound-1-abc", serviceType: "full_home", intent: "full_execution", location: "Kothrud", timelineKind: "flexible", decisionMaker: "self" });
+  await post(t.handle, "/tools/desk", { action: "book", callId: "inbound-1-abc", slotStart: av.slots[0].start });
+  await nativePost(t.handle, post_event);
+  assert.equal(t.calendar.booked.length, 1); assert.equal((await t.repo.getByProviderCallId("inbound-1-abc"))!.bookingStatus, "booked");
 });
 
 test("audit treats expanded contractions as the same words (you'd = you would)", () => {

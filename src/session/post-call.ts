@@ -37,17 +37,32 @@ export async function completeCall(d: SessionDeps, rec: CallRecord, o: CallOutco
   let crm: { status: CrmStatus; dealId?: string } | undefined;
 
   if (dec?.verdict === "qualified" && o.facts) {
-    // Not booked in the call: give the designer free slots to offer when they phone back.
+    // Not booked during the call. Book the first free slot now, marked provisional (the caller was
+    // only told the designer will confirm a time). If that fails, list free slots instead.
     let suggested: string[] | undefined;
-    if (o.booking.status !== "booked") {
+    let provisional: { time: string; ref: string; label: string } | null = null;
+    // A caller who said no to a booking is never booked.
+    if (o.booking.status !== "booked" && o.booking.status !== "declined_by_caller") {
       try {
-        suggested = (await d.calendar.findSlots(3, new Date())).map((x) => x.label);
+        const slots = await d.calendar.findSlots(3, new Date());
         costs.push(calcomCost(rates));
+        if (d.autoBook !== false && slots.length) {
+          try {
+            const first = slots[0];
+            const made = await d.calendar.book({
+              slot: first, name: o.facts.callerName ?? null, phone: o.facts.phone ?? rec.callerPhone ?? null,
+              notes: buildHandoffNote(o.facts, dec, { booked: false, provisional: true, when: first.label }),
+            });
+            costs.push(calcomCost(rates));
+            provisional = { time: made.start, ref: made.ref, label: first.label };
+            suggested = slots.slice(1).map((x) => x.label); // alternatives if the first does not suit
+          } catch { suggested = slots.map((x) => x.label); }
+        } else suggested = slots.map((x) => x.label);
       } catch { /* the note is still useful without slots */ }
     }
+    if (provisional) o.booking = { status: "provisional", time: provisional.time, ref: provisional.ref };
     const note = buildHandoffNote(o.facts, dec, {
-      booked: o.booking.status === "booked", suggested,
-      when: o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : undefined,
+      booked: o.booking.status === "booked", suggested, provisional: Boolean(provisional), when: provisional?.label ?? (o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : undefined),
     });
     try { await d.notifier.send("designers", note); costs.push(telegramCost(rates)); handoff = { status: "sent" }; }
     catch { handoff = { status: "failed" }; }

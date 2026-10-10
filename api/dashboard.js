@@ -890,7 +890,8 @@ function summarise(calls, costs, fixed, range) {
     totalCalls: calls.length,
     afterHoursCalls: calls.filter((c) => c.afterHours).length,
     verdicts,
-    consultationsBooked: calls.filter((c) => c.bookingStatus === "booked").length,
+    consultationsBooked: calls.filter((c) => c.bookingStatus === "booked" || c.bookingStatus === "provisional").length,
+    consultationsProvisional: calls.filter((c) => c.bookingStatus === "provisional").length,
     compliance: { audited: calls.filter((c) => c.auditIssues !== null && c.auditIssues !== void 0).length, clean: calls.filter((c) => c.auditIssues && c.auditIssues.length === 0).length },
     pricingQuestions: calls.filter((c) => c.pricingAsked).length,
     latency: {

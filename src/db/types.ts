@@ -3,7 +3,7 @@ import type { CostEntry } from "../core/costs.ts";
 
 export type DbVerdict = "in_progress" | "qualified" | "declined" | "deferred" | "escalated" | "abandoned";
 export type HandoffStatus = "not_applicable" | "pending" | "sent" | "failed" | "escalation_pending" | "escalation_done";
-export type BookingStatus = "not_applicable" | "offered" | "booked" | "declined_by_caller" | "failed";
+export type BookingStatus = "not_applicable" | "offered" | "booked" | "provisional" | "declined_by_caller" | "failed";
 export type CrmStatus = "not_applicable" | "pending" | "created" | "failed";
 
 export interface TranscriptTurn { speaker: "agent" | "caller"; text: string; at: string }

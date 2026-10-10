@@ -124,16 +124,17 @@ test("calendar failure: caller is told the designer will call; handoff and deal 
   const r = await session.hear("first one");
   assert.ok(r.say.includes("call you to confirm")); assert.equal(r.end, true);
   const rec = await end(session);
-  assert.equal(rec.bookingStatus, "failed"); assert.equal(rec.handoffStatus, "sent"); assert.equal(rec.crmStatus, "created");
-  assert.ok(notifier.sent[0].text.includes("Consultation booked: no")); assert.equal(crm.deals.length, 1);
+  // The in-call booking failed, so the after-call step tried again and succeeded: provisional.
+  assert.equal(rec.bookingStatus, "provisional"); assert.equal(rec.handoffStatus, "sent"); assert.equal(rec.crmStatus, "created");
+  assert.ok(notifier.sent[0].text.includes("PROVISIONALLY BOOKED")); assert.equal(crm.deals.length, 1);
 });
 
 test("caller hangs up while slots are offered: lead is still handed off and logged", async () => {
   const { session, notifier } = await setup([fixture("T01")]);
   await session.hear("full redesign in Kothrud");
   const rec = await end(session);
-  assert.equal(rec.verdict, "qualified"); assert.equal(rec.bookingStatus, "offered"); assert.equal(rec.handoffStatus, "sent");
-  assert.ok(notifier.sent[0].text.includes("Consultation booked: no"));
+  assert.equal(rec.verdict, "qualified"); assert.equal(rec.bookingStatus, "provisional"); assert.equal(rec.handoffStatus, "sent");
+  assert.ok(notifier.sent[0].text.includes("PROVISIONALLY BOOKED"));
 });
 
 test("caller declines the slots: no booking, lead still forwarded", async () => {

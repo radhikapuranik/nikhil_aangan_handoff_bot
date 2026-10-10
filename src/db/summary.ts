@@ -5,7 +5,8 @@ export interface Summary {
   totalCalls: number;
   afterHoursCalls: number;
   verdicts: Record<string, number>;
-  consultationsBooked: number;
+  consultationsBooked: number;      // confirmed in the call, or booked automatically after it
+  consultationsProvisional: number; // of those, booked automatically and still to be confirmed by a designer
   // Calls whose transcript was checked for script breaches (quoted a price, wrong wording).
   compliance: { audited: number; clean: number };
   pricingQuestions: number;
@@ -61,7 +62,8 @@ export function summarise(calls: CallRecord[], costs: StoredCost[], fixed: Fixed
     totalCalls: calls.length,
     afterHoursCalls: calls.filter((c) => c.afterHours).length,
     verdicts,
-    consultationsBooked: calls.filter((c) => c.bookingStatus === "booked").length,
+    consultationsBooked: calls.filter((c) => c.bookingStatus === "booked" || c.bookingStatus === "provisional").length,
+    consultationsProvisional: calls.filter((c) => c.bookingStatus === "provisional").length,
     compliance: { audited: calls.filter((c) => c.auditIssues !== null && c.auditIssues !== undefined).length, clean: calls.filter((c) => c.auditIssues && c.auditIssues.length === 0).length },
     pricingQuestions: calls.filter((c) => c.pricingAsked).length,
     latency: {

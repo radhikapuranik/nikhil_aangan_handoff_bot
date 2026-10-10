@@ -15,6 +15,7 @@ export interface SessionDeps extends Integrations {
   repo: CallRepository;
   rates?: Rates;
   now?: () => Date;
+  autoBook?: boolean; // book the first free slot after a qualified call that was not booked in the call (default on)
 }
 
 type Phase = "qualifying" | "offering_slots" | "closed";

@@ -212,7 +212,7 @@ function render(d) {
   $("kpis").replaceChildren(
     kpi("Enquiries handled", s.totalCalls, `${s.afterHoursCalls} (${pct(s.afterHoursCalls, s.totalCalls)}) came after hours`),
     kpi("Median time to answer", ms(s.latency.medianMs), s.latency.under5MinPct == null ? "No calls yet" : `${s.latency.under5MinPct}% within 5 minutes · slowest ${ms(s.latency.maxMs)}`),
-    kpi("Consultations booked", s.consultationsBooked, q ? `${pct(s.consultationsBooked, q)} of ${q} qualified calls` : "No qualified calls yet"),
+    kpi("Consultations booked", s.consultationsBooked, q ? `${pct(s.consultationsBooked, q)} of ${q} qualified calls` + (s.consultationsProvisional ? ` · ${s.consultationsProvisional} auto-booked, designer to confirm` : "") : "No qualified calls yet"),
     kpi("System cost", inr(s.cost.totalInr), s.totalCalls ? `${inr(s.cost.perCallAvgInr)} per call` + (q ? ` · ${inr(Math.round(s.cost.totalInr / q * 100) / 100)} per qualified lead` : "") : "—"),
   );
 
@@ -310,7 +310,7 @@ function statusCell(c) {
   const out = [];
   if (c.handoffStatus === "sent") out.push(ok("handoff sent")); else if (c.handoffStatus === "failed") out.push(bad("handoff failed")); else if (c.handoffStatus === "escalation_pending") out.push(bad("callback due"));
   else if (c.handoffStatus === "pending") out.push(bad("handoff pending"));
-  if (c.bookingStatus === "booked") out.push(ok("booked " + when(c.bookingTime))); else if (c.bookingStatus === "failed") out.push(bad("booking failed")); else if (c.bookingStatus === "declined_by_caller") out.push(plain("no booking"));
+  if (c.bookingStatus === "booked") out.push(ok("booked " + when(c.bookingTime))); else if (c.bookingStatus === "provisional") out.push(plain("auto-booked " + when(c.bookingTime) + ", to confirm")); else if (c.bookingStatus === "failed") out.push(bad("booking failed")); else if (c.bookingStatus === "declined_by_caller") out.push(plain("no booking"));
   if (c.crmStatus === "created") out.push(plain("in CRM")); else if (c.crmStatus === "failed") out.push(bad("CRM failed"));
   return el("div", { style: "display:flex;gap:4px;flex-wrap:wrap" }, ...out);
 }

@@ -1,6 +1,6 @@
 import type { CallFacts, Decision } from "./types.ts";
 
-export interface BookingInfo { booked: boolean; when?: string; suggested?: string[] }
+export interface BookingInfo { booked: boolean; when?: string; suggested?: string[]; provisional?: boolean }
 
 // Field order follows "Handoff note format" in qualification-logic.md.
 export function buildHandoffNote(f: CallFacts, d: Decision, booking: BookingInfo): string {
@@ -30,7 +30,9 @@ export function buildHandoffNote(f: CallFacts, d: Decision, booking: BookingInfo
     `Budget signal: ${budget}`,
     `Decision-maker: ${dm[f.decisionMaker]}${f.decisionMakerNote ? " — " + f.decisionMakerNote : ""}`,
     `Uncertainty flags: ${d.flags.length ? d.flags.join("; ") : "none"}`,
-    `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " — " + booking.when : "") : "no"}`,
+    booking.provisional
+      ? `Consultation: PROVISIONALLY BOOKED${booking.when ? " for " + booking.when : ""}. The caller was told only that the designer will call to confirm a time, so please phone them to confirm or move it.`
+      : `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " — " + booking.when : "") : "no"}`,
     ...(!booking.booked && booking.suggested?.length ? [`Free slots to offer the caller: ${booking.suggested.join(" | ")}`] : []),
   ].join("\n");
 }
