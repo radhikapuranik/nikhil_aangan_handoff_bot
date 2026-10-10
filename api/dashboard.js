@@ -766,6 +766,14 @@ var PHONE_FIXTURES = [
 ];
 
 // src/fixtures/seed.ts
+function sampleTranscript(f2, at) {
+  const turn = (speaker, text) => ({ speaker, text, at });
+  return [
+    turn("agent", "Good morning, Aangan Studio \u2014 how can I help you today?"),
+    turn("caller", `Hi, I have a ${f2.serviceType.replace(/_/g, " ")} project${f2.location ? " in " + f2.location : ""}${f2.sqft ? ", about " + f2.sqft + " sq ft" : ""}. (sample data)`),
+    turn("agent", "Thank you for calling Aangan Studio.")
+  ];
+}
 function rng(seed) {
   let s = seed;
   return () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
@@ -797,7 +805,7 @@ async function seedDemo(repo, opts = {}) {
     await finishCall(repo, rec.id, {
       decision,
       facts: { ...fx.facts, callerName: fx.facts.callerName ?? null },
-      transcript: [],
+      transcript: sampleTranscript(fx.facts, startedAt),
       endedAt: new Date(new Date(startedAt).getTime() + duration * 1e3).toISOString(),
       durationSec: duration,
       pricingAsked: !!fx.pricingQuestions,
@@ -916,6 +924,44 @@ function summarise(calls, costs, fixed, range) {
 // src/db/dashboard.ts
 var maskPhone = (p) => p ? "\u2022\u2022\u2022\u2022\u2022\u2022 " + p.replace(/\D/g, "").slice(-4) : null;
 var istDate = (iso) => new Date(new Date(iso).getTime() + 330 * 6e4).toISOString().slice(0, 10);
+var SERVICE_LABEL = {
+  full_home: "Full home",
+  partial_home: "Part of a home",
+  single_room: "Single room",
+  commercial_office: "Office / commercial",
+  restaurant: "Restaurant",
+  hotel: "Hotel",
+  retail: "Retail",
+  gym: "Gym",
+  architecture_structural: "Architecture / structural",
+  decor_only: "Decor only",
+  furniture_only: "Furniture only",
+  vastu_only: "Vastu only",
+  unknown: "Not stated"
+};
+var lakh = (n) => Number.isInteger(n) ? String(n) : n.toFixed(1);
+function describeFacts(f2, fallbackName) {
+  if (!f2) return { callerName: fallbackName, project: "Not captured", location: "Not captured", timeline: "Not captured", decisionMaker: "Not captured", budget: "Not captured", currentState: "Not captured" };
+  const t = f2.timeline;
+  const dm = {
+    self: "Caller decides",
+    authorised: "Caller, authorised by someone else",
+    family_attending: "Family will attend and decide",
+    research_only: "Researching for someone else",
+    unknown: "Not confirmed"
+  };
+  return {
+    callerName: f2.callerName ?? fallbackName,
+    project: [SERVICE_LABEL[f2.serviceType] ?? f2.serviceType, f2.sqft ? `${f2.sqft} sq ft` : null].filter(Boolean).join(" \xB7 "),
+    location: f2.location ?? "Not stated",
+    timeline: t.kind === "flexible" ? "Flexible" : t.kind === "unknown" || t.weeks === null ? "Not stated" : `${t.kind === "start_by" ? "Start within" : "Finish within"} ~${t.weeks} weeks`,
+    decisionMaker: dm[f2.decisionMaker] + (f2.decisionMakerNote ? ` (${f2.decisionMakerNote})` : ""),
+    budget: f2.budgetLakh ? `\u20B9${lakh(f2.budgetLakh.min)}\u2013${lakh(f2.budgetLakh.max)} lakh (volunteered)` : "None volunteered",
+    currentState: f2.currentState ?? "Not stated"
+  };
+}
+var maskDigits = (text) => text.replace(/\+?\d[\d\s\-]{6,}\d/g, (m) => m.replace(/\D/g, "").length >= 9 ? "\u2022\u2022\u2022\u2022\u2022\u2022 " + m.replace(/\D/g, "").slice(-4) : m);
+var safeTranscript = (t) => (t ?? []).slice(0, 200).map((x) => ({ speaker: x.speaker, at: x.at, text: maskDigits(String(x.text).slice(0, 2e3)) }));
 function needsAttention(c) {
   return c.handoffStatus === "failed" || c.handoffStatus === "escalation_pending" || c.crmStatus === "failed" || c.bookingStatus === "failed" || c.verdict === "qualified" && c.handoffStatus === "pending" || Boolean(c.auditIssues && c.auditIssues.length);
 }
@@ -938,6 +984,8 @@ function toRecent(c, costs) {
     durationSec: c.durationSec,
     answerLatencyMs: c.answerLatencyMs,
     auditIssues: c.auditIssues ?? null,
+    details: describeFacts(c.facts, c.callerName),
+    transcript: safeTranscript(c.transcript),
     costInr: mine.some((x) => x.costInr === null) || !mine.length ? null : Math.round(mine.reduce((a, x) => a + (x.costInr ?? 0), 0) * 100) / 100
   };
 }

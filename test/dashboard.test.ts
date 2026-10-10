@@ -48,3 +48,36 @@ test("empty range gives zeros and nulls, not NaN", async () => {
   assert.equal(d.summary.totalCalls, 0); assert.equal(d.summary.latency.medianMs, null);
   assert.equal(d.summary.cost.perCallAvgInr, null); assert.deepEqual(d.recent, []);
 });
+
+test("call details are in plain words: caller, project, location, timeline, decision-maker, budget", async () => {
+  const { describeFacts } = await import("../src/db/dashboard.ts");
+  const { PHONE_FIXTURES } = await import("../src/fixtures/phone-transcripts.ts");
+  const t14 = describeFacts(PHONE_FIXTURES.find((f) => f.id === "T14")!.facts, null);
+  assert.equal(t14.location, "Hadapsar"); assert.equal(t14.project, "Full home");
+  assert.ok(t14.decisionMaker.startsWith("Family will attend and decide") && t14.decisionMaker.includes("parents"));
+  assert.equal(t14.budget, "None volunteered"); assert.equal(t14.timeline, "Not stated");
+  const t10 = describeFacts(PHONE_FIXTURES.find((f) => f.id === "T10")!.facts, null);
+  assert.equal(t10.budget, "₹1–1.5 lakh (volunteered)"); assert.equal(t10.project, "Part of a home · 550 sq ft");
+  const t01 = describeFacts(PHONE_FIXTURES.find((f) => f.id === "T01")!.facts, null);
+  assert.equal(t01.callerName, "Priya"); assert.equal(t01.timeline, "Finish within ~26 weeks"); assert.equal(t01.project, "Full home · 1400 sq ft");
+  assert.equal(describeFacts(null, "Sam").callerName, "Sam");
+  assert.equal(describeFacts(null, null).location, "Not captured");
+});
+
+test("spoken phone numbers are masked in transcripts, other numbers are not", async () => {
+  const { maskDigits, safeTranscript } = await import("../src/db/dashboard.ts");
+  assert.equal(maskDigits("My number is 98 22 00 11 22."), "My number is •••••• 1122.");
+  assert.equal(maskDigits("call +91 98123 45678 please"), "call •••••• 5678 please");
+  assert.equal(maskDigits("about 1400 sq ft, 5 months, 2BHK"), "about 1400 sq ft, 5 months, 2BHK");
+  const t = safeTranscript([{ speaker: "caller", text: "it's 9822001122", at: "x" }]);
+  assert.equal(t[0].text, "it's •••••• 1122");
+  assert.deepEqual(safeTranscript(null), []);
+});
+
+test("the dashboard data carries the transcript and details for each recent call", async () => {
+  const repo = new MemoryRepository();
+  await seedDemo(repo, { now: NOW, calls: 3 });
+  const d = await buildDashboard(repo, RANGE);
+  assert.ok(d.recent.every((c) => c.transcript.length > 0 && c.details.location.length > 0 && c.details.project.length > 0));
+  assert.ok(!JSON.stringify(d).match(/\+9198\d{8}/));
+});

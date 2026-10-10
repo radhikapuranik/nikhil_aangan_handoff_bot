@@ -8,6 +8,15 @@ import { PHONE_FIXTURES } from "./phone-transcripts.ts";
 // recent days, with made-up timings, so the dashboard has something to show
 // before real calls exist. Never written to a real database unless asked.
 
+function sampleTranscript(f: { serviceType: string; location: string | null; sqft: number | null }, at: string) {
+  const turn = (speaker: "agent" | "caller", text: string) => ({ speaker, text, at });
+  return [
+    turn("agent", "Good morning, Aangan Studio — how can I help you today?"),
+    turn("caller", `Hi, I have a ${f.serviceType.replace(/_/g, " ")} project${f.location ? " in " + f.location : ""}${f.sqft ? ", about " + f.sqft + " sq ft" : ""}. (sample data)`),
+    turn("agent", "Thank you for calling Aangan Studio."),
+  ];
+}
+
 function rng(seed: number) { let s = seed; return () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296; }
 
 export async function seedDemo(repo: CallRepository, opts: { days?: number; calls?: number; now?: Date } = {}) {
@@ -35,7 +44,7 @@ export async function seedDemo(repo: CallRepository, opts: { days?: number; call
     const costs = [vaaniCost(duration), ...geminiCost(2500 + Math.floor(r() * 2500), 300 + Math.floor(r() * 300))];
     if (qualified) costs.push(telegramCost(), hubspotCost(), calcomCost());
     await finishCall(repo, rec.id, {
-      decision, facts: { ...fx.facts!, callerName: fx.facts!.callerName ?? null }, transcript: [],
+      decision, facts: { ...fx.facts!, callerName: fx.facts!.callerName ?? null }, transcript: sampleTranscript(fx.facts!, startedAt),
       endedAt: new Date(new Date(startedAt).getTime() + duration * 1000).toISOString(), durationSec: duration,
       pricingAsked: !!fx.pricingQuestions,
       auditIssues: r() < 0.04 ? ["price_quoted", "pricing_line_not_verbatim"] : [],

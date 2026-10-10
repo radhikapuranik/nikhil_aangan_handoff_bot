@@ -80,6 +80,19 @@
   .pill.ok { color: var(--good); border-color: var(--good); }
   .flag { color: var(--warn-ink); font-size: 12px; }
   .full { margin-bottom: 12px; }
+  .twisty { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--line); border-radius: 8px; color: var(--text-primary); padding: 4px 8px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .twisty[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  tr.detail > td { background: var(--surface-0); padding: 14px 16px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 20px; margin: 0 0 14px; }
+  .facts div { min-width: 0; }
+  .facts dt { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .facts dd { margin: 2px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+  .tx { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; max-width: 760px; }
+  .tx .turn { display: grid; grid-template-columns: 64px 1fr; gap: 10px; font-size: 14px; }
+  .tx .who { color: var(--text-muted); font-size: 12px; padding-top: 2px; }
+  .tx .turn.caller .who { color: var(--accent); font-weight: 600; }
+  .sub2 { font-size: 12px; color: var(--text-muted); font-weight: 600; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  td.nowrap, .nowrap { white-space: nowrap; }
   .costrow { display: grid; grid-template-columns: 150px 1fr 100px; gap: 10px; align-items: center; margin: 8px 0; font-size: 14px; }
   .bar { height: 10px; background: var(--grid); border-radius: 5px; overflow: hidden; }
   .bar > i { display: block; height: 100%; background: var(--ramp); border-radius: 5px; }
@@ -146,7 +159,7 @@
 
   <section class="card full" aria-labelledby="h-rec">
     <h2 id="h-rec">Recent calls</h2>
-    <p class="hint">Phone numbers are masked here.</p>
+    <p class="hint">Phone numbers are masked here and in transcripts. Click Details on a call to read the full transcript.</p>
     <div class="tablewrap"><table id="recTable"></table></div>
   </section>
 </div>
@@ -159,7 +172,7 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (k === "class") e.className = v; else if (k === "style") e.setAttribute("style", v);
+    if (k === "class") e.className = v; else if (k === "style") e.setAttribute("style", v); else if (k === "hidden") e.hidden = true;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
   }
   for (const kid of kids.flat()) if (kid != null) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
@@ -314,16 +327,51 @@ function statusCell(c) {
   if (c.crmStatus === "created") out.push(plain("in CRM")); else if (c.crmStatus === "failed") out.push(bad("CRM failed"));
   return el("div", { style: "display:flex;gap:4px;flex-wrap:wrap" }, ...out);
 }
+const FACT_LABELS = [["Caller", "callerName"], ["Project", "project"], ["Location", "location"], ["Timeline", "timeline"], ["Decision-maker", "decisionMaker"], ["Budget (volunteered)", "budget"], ["Current state", "currentState"]];
+function noteBadges(c) {
+  const out = [];
+  for (const a of c.auditIssues || []) out.push(el("div", { class: "flag", style: "color:var(--crit)" }, "✖ " + AUDIT_TEXT[a]));
+  if (c.flags.length) out.push(el("div", { class: "flag" }, `⚠ ${c.flags.length} to check`));
+  if (c.pricingAsked) out.push(el("div", { class: "muted", style: "font-size:12px" }, "asked about price"));
+  return out;
+}
+function detailRow(c, cols) {
+  const facts = el("dl", { class: "facts" }, ...FACT_LABELS.map(([label, key]) => el("div", {}, el("dt", {}, label), el("dd", {}, c.details[key] || "Not captured"))),
+    el("div", {}, el("dt", {}, "Phone"), el("dd", {}, c.phoneMasked || "Not captured")),
+    el("div", {}, el("dt", {}, "Asked about price?"), el("dd", {}, c.pricingAsked ? "Yes (given the scripted answer)" : "No")),
+    el("div", {}, el("dt", {}, "Consultation"), el("dd", {}, c.bookingStatus === "booked" ? "Booked " + when(c.bookingTime) : c.bookingStatus === "provisional" ? "Auto-booked " + when(c.bookingTime) + ", to confirm" : "Not booked")),
+    el("div", {}, el("dt", {}, "Answered in"), el("dd", {}, ms(c.answerLatencyMs))),
+    el("div", {}, el("dt", {}, "Call length"), el("dd", {}, c.durationSec == null ? "—" : `${Math.floor(c.durationSec / 60)}m ${c.durationSec % 60}s`)));
+  const why = [...c.reasons.map((r) => el("div", { class: "muted" }, r)), ...c.flags.map((f) => el("div", { class: "flag" }, "⚠ " + f)), ...(c.auditIssues || []).map((a) => el("div", { class: "flag", style: "color:var(--crit)" }, "✖ " + AUDIT_TEXT[a]))];
+  const tx = c.transcript.length
+    ? el("div", { class: "tx", role: "log", "aria-label": "Call transcript" }, ...c.transcript.map((t) => el("div", { class: "turn " + t.speaker }, el("span", { class: "who" }, t.speaker === "agent" ? "Agent" : "Caller"), el("span", {}, t.text))))
+    : el("div", { class: "muted" }, "No transcript was recorded for this call.");
+  return el("tr", { class: "detail", hidden: "" }, el("td", { colspan: String(cols) }, facts, why.length ? el("div", {}, el("div", { class: "sub2" }, "Why this outcome"), ...why) : null, el("div", { class: "sub2" }, "Transcript"), tx));
+}
 function callTable(table, calls) {
-  table.replaceChildren(el("tr", {}, ...["When", "Caller", "Outcome", "Status", "Notes", "Answered in", "Cost"].map((h, i) => el("th", { class: i >= 5 ? "num" : "" }, h))),
-    ...calls.map((c) => el("tr", {},
-      el("td", {}, when(c.startedAt), c.afterHours ? el("div", { class: "muted", style: "font-size:12px" }, "after hours") : null),
-      el("td", {}, c.name || "—", el("div", { class: "muted", style: "font-size:12px" }, c.phoneMasked || "")),
-      el("td", {}, VERDICT_LABEL[c.verdict] || c.verdict),
-      el("td", {}, statusCell(c)),
-      el("td", {}, ...[...c.reasons.map((r) => el("div", { class: "muted" }, r)), ...c.flags.map((f) => el("div", { class: "flag" }, "⚠ " + f)), ...(c.auditIssues || []).map((a) => el("div", { class: "flag", style: "color:var(--crit)" }, "✖ " + AUDIT_TEXT[a])), c.pricingAsked ? el("div", { class: "muted" }, "asked about price") : null]),
-      el("td", { class: "num" }, ms(c.answerLatencyMs)),
-      el("td", { class: "num" }, inr(c.costInr)))));
+  const heads = ["When", "Caller", "Project", "Location", "Timeline", "Decision-maker", "Budget", "Outcome", "Status", "Cost"];
+  table.replaceChildren(el("tr", {}, ...heads.map((h, i) => el("th", { class: i === heads.length - 1 ? "num" : "" }, h))),
+    ...calls.flatMap((c) => {
+      const detail = detailRow(c, heads.length);
+      const btn = el("button", { class: "twisty", "aria-expanded": "false", "aria-label": "Show call details and transcript" }, "▸ Details");
+      btn.addEventListener("click", () => {
+        const open = detail.hidden; detail.hidden = !open;
+        btn.setAttribute("aria-expanded", String(open)); btn.textContent = (open ? "▾ " : "▸ ") + "Details";
+      });
+      const d = c.details;
+      const row = el("tr", {},
+        el("td", { class: "nowrap" }, when(c.startedAt), c.afterHours ? el("div", { class: "muted", style: "font-size:12px" }, "after hours") : null, el("div", { style: "margin-top:6px" }, btn)),
+        el("td", {}, d.callerName || "—", el("div", { class: "muted", style: "font-size:12px" }, c.phoneMasked || "")),
+        el("td", {}, d.project),
+        el("td", {}, d.location),
+        el("td", {}, d.timeline),
+        el("td", {}, d.decisionMaker),
+        el("td", {}, d.budget, c.pricingAsked ? el("div", { class: "muted", style: "font-size:12px" }, "asked about price") : null),
+        el("td", {}, VERDICT_LABEL[c.verdict] || c.verdict, ...noteBadges(c)),
+        el("td", {}, statusCell(c)),
+        el("td", { class: "num" }, inr(c.costInr)));
+      return [row, detail];
+    }));
 }
 function drawTables(d) {
   $("attentionCard").hidden = d.attention.length === 0;

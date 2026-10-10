@@ -1,6 +1,18 @@
 import type { CallRepository } from "./repository.ts";
 import { summarise, type Summary } from "./summary.ts";
-import type { CallRecord, DateRange, StoredCost } from "./types.ts";
+import type { CallFacts } from "../core/types.ts";
+import type { CallRecord, DateRange, StoredCost, TranscriptTurn } from "./types.ts";
+
+// What the designer would want at a glance, in plain words.
+export interface CallDetails {
+  callerName: string | null;
+  project: string;        // "Full home · 1400 sq ft"
+  location: string;
+  timeline: string;
+  decisionMaker: string;
+  budget: string;         // only what the caller volunteered; the agent never quotes a price
+  currentState: string;
+}
 
 export interface RecentCall {
   id: string; startedAt: string; afterHours: boolean; phoneMasked: string | null; name: string | null;
@@ -8,6 +20,8 @@ export interface RecentCall {
   handoffStatus: string; bookingStatus: string; bookingTime: string | null; crmStatus: string;
   durationSec: number | null; answerLatencyMs: number | null;
   auditIssues: string[] | null;
+  details: CallDetails;
+  transcript: TranscriptTurn[]; // phone numbers masked
   costInr: number | null; // null = at least one rate unknown
 }
 
@@ -23,6 +37,40 @@ export interface DashboardData {
 export const maskPhone = (p: string | null) => (p ? "•••••• " + p.replace(/\D/g, "").slice(-4) : null);
 
 const istDate = (iso: string) => new Date(new Date(iso).getTime() + 330 * 60000).toISOString().slice(0, 10);
+
+
+const SERVICE_LABEL: Record<string, string> = {
+  full_home: "Full home", partial_home: "Part of a home", single_room: "Single room", commercial_office: "Office / commercial",
+  restaurant: "Restaurant", hotel: "Hotel", retail: "Retail", gym: "Gym", architecture_structural: "Architecture / structural",
+  decor_only: "Decor only", furniture_only: "Furniture only", vastu_only: "Vastu only", unknown: "Not stated",
+};
+
+const lakh = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+export function describeFacts(f: CallFacts | null, fallbackName: string | null): CallDetails {
+  if (!f) return { callerName: fallbackName, project: "Not captured", location: "Not captured", timeline: "Not captured", decisionMaker: "Not captured", budget: "Not captured", currentState: "Not captured" };
+  const t = f.timeline;
+  const dm: Record<CallFacts["decisionMaker"], string> = {
+    self: "Caller decides", authorised: "Caller, authorised by someone else", family_attending: "Family will attend and decide",
+    research_only: "Researching for someone else", unknown: "Not confirmed",
+  };
+  return {
+    callerName: f.callerName ?? fallbackName,
+    project: [SERVICE_LABEL[f.serviceType] ?? f.serviceType, f.sqft ? `${f.sqft} sq ft` : null].filter(Boolean).join(" · "),
+    location: f.location ?? "Not stated",
+    timeline: t.kind === "flexible" ? "Flexible" : t.kind === "unknown" || t.weeks === null ? "Not stated" : `${t.kind === "start_by" ? "Start within" : "Finish within"} ~${t.weeks} weeks`,
+    decisionMaker: dm[f.decisionMaker] + (f.decisionMakerNote ? ` (${f.decisionMakerNote})` : ""),
+    budget: f.budgetLakh ? `₹${lakh(f.budgetLakh.min)}–${lakh(f.budgetLakh.max)} lakh (volunteered)` : "None volunteered",
+    currentState: f.currentState ?? "Not stated",
+  };
+}
+
+// Dashboards are shared, so long digit runs (phone numbers the caller spoke) are masked in transcripts too.
+export const maskDigits = (text: string) =>
+  text.replace(/\+?\d[\d\s\-]{6,}\d/g, (m) => (m.replace(/\D/g, "").length >= 9 ? "•••••• " + m.replace(/\D/g, "").slice(-4) : m));
+
+export const safeTranscript = (t: TranscriptTurn[] | null | undefined): TranscriptTurn[] =>
+  (t ?? []).slice(0, 200).map((x) => ({ speaker: x.speaker, at: x.at, text: maskDigits(String(x.text).slice(0, 2000)) }));
 
 // A call needs a human if something that should have happened did not.
 export function needsAttention(c: CallRecord): boolean {
@@ -41,6 +89,7 @@ function toRecent(c: CallRecord, costs: StoredCost[]): RecentCall {
     verdict: c.verdict, reasons: c.reasons, flags: c.flags, pricingAsked: c.pricingAsked,
     handoffStatus: c.handoffStatus, bookingStatus: c.bookingStatus, bookingTime: c.bookingTime, crmStatus: c.crmStatus,
     durationSec: c.durationSec, answerLatencyMs: c.answerLatencyMs, auditIssues: c.auditIssues ?? null,
+    details: describeFacts(c.facts, c.callerName), transcript: safeTranscript(c.transcript),
     costInr: mine.some((x) => x.costInr === null) || !mine.length ? null : Math.round(mine.reduce((a, x) => a + (x.costInr ?? 0), 0) * 100) / 100,
   };
 }
