@@ -906,7 +906,7 @@ var EXTRACT_SYSTEM = `You read a phone conversation between a caller and the Aan
   Examples: "We move in November, so maybe starting design from October" -> complete_by (the move-in), NOT start_by. "I want it done before Diwali" when the conversation says Diwali is three weeks away -> complete_by, weeks 3. "We'd like to start execution in January" -> start_by. "Done by March, no rush" -> complete_by. If the conversation itself says how far away a date is (for example "Diwali is three weeks away"), use that figure instead of your own calendar knowledge; otherwise work it out from today's date.
 - decisionMaker: self; authorised (spouse/partner who is not on the call has told them to go ahead); family_attending (e.g. parents who will attend the consultation and decide); research_only (just researching for someone else, no confirmation they will be involved); else unknown.
 - preferredStart: the consultation day and time the CALLER chose (for example "Thursday at 11 am"), as ISO 8601 with the +05:30 India offset, resolving words like "tomorrow" or "Thursday" from today's date (a weekday alone means the next such day). null if the caller has not chosen a time.
-- budgetMinRupees / budgetMaxRupees: ONLY if the caller states a budget figure, as whole rupees (1 lakh = 100000, so "1 to 1.5 lakh" is 100000 and 150000; a single figure goes in both). Otherwise null. Use whole numbers for every number field.
+- budgetMinRupees / budgetMaxRupees: ONLY if the caller states a budget figure, as whole rupees (1 lakh = 100000, so "1 to 1.5 lakh" is 100000 and 150000; a single figure goes in both). Otherwise null. If the caller changes their budget later in the call, use the LATEST figure they state. Use whole numbers for every number field.
 Today is {TODAY}.`;
 var EXTRACT_SCHEMA = {
   type: "OBJECT",
@@ -1797,7 +1797,7 @@ async function judgeConversation(llm, turns, today, prior = null) {
       asked[decision.ask] = (asked[decision.ask] ?? 0) + 1;
       continue;
     }
-    if (decision.verdict !== "qualified") break;
+    if (decision.verdict === "escalated") break;
   }
   for (let i = 0; i < 12 && facts && decision && decision.verdict === "needs_followup"; i++) {
     asked[decision.ask] = (asked[decision.ask] ?? 0) + 1;
