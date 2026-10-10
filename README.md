@@ -12,7 +12,7 @@ Be precise about this when asked.
 |---|---|
 | Qualification logic, scripts, pricing guard, handoff note | **Built and tested** (95 automated tests, all pass; `npm test`) |
 | All 20 phone transcripts (T01-T20) | **Run through the logic**, 20/20 agree with expected verdicts (see [Testing](#testing)). This tests the *decisions* given facts, not speech understanding |
-| **Automatic booking after the call** | **Verified live with every real service** (Gemini, Cal.com, Telegram, HubSpot; Neon not involved): a sample qualified call was judged, a slot was booked provisionally, the Telegram note was sent, the HubSpot deal was created. The booking, deal and contact were then deleted; the Telegram message remains in the group as a labelled test. A caller who declines is never booked; if booking fails the note lists free slots instead; `AUTO_BOOK=0` switches it off |
+| **Booking after the call** | **Verified live with every real service.** The agent asks the caller which day and time suits them; after the call the server books **exactly that time** in Cal.com if it is free. If the caller named no time, or it is taken, or it is a Sunday or outside 9am-6pm, **nothing is booked** and the Telegram note lists free slots for the designer to offer. A caller who declines is never booked. Live test: "Tuesday at 11 in the morning" became Tue 13 Oct 11:00 IST, booked, then cancelled with its test deal and contact. `AUTO_BOOK=0` switches it off |
 | **Booking** | **Verified live through production**: a test consultation was booked via the tool, read back from Cal.com, then cancelled. Found and fixed a bug on the way: Cal.com rejects made-up attendee email domains, so bookings now use a "+" alias of a real inbox (`CALCOM_EMAIL_FALLBACK`) |
 | **Vercel deployment** | **Live at https://aangan-phone-agent.vercel.app** (dashboard at `/`, needs the password). Every endpoint is checked from outside: wrong or missing credentials get 401, and a forged webhook is rejected. A real round trip through production reached Neon and Cal.com (two real slots). Test rows removed |
 | Call log, cost ledger, dashboard | **Call log and cost ledger verified on the real Neon database** (schema applied; a test call written, read back through the dashboard query, then deleted). Dashboard viewed locally with *sample* data. Not yet run on Vercel |
@@ -88,47 +88,7 @@ The real platform is **app.vaanivoice.ai** (docs at docs.vaanivoice.ai). What is
 2. **Webhook** "Aangan call results" for the **Call Post-Processing** event, pointing at `https://aangan-phone-agent.vercel.app/api/webhooks/vaani`. Vaani's webhooks have no documented signature, so the server verifies each event by asking Vaani's API (`call_details`) whether that call exists and fetching the transcript from there. A forged call id gets a 404 and does nothing.
 3. **Custom tool** `aangan_desk` is created in Vaani (rules, availability, booking) and the server side is built and tested, but it is **switched off**. In testing, Vaani's AI never called it and instead read the tool's name aloud. It stays off until a voice test shows tool calls working.
 
-Consequences, stated plainly: the agent **cannot book during the call**. It tells the caller the designer will phone to confirm a time. After the call the server **books the first free slot automatically, marked provisional**, and the Telegram note tells the designer to phone the caller to confirm or move it (alternative slots are listed). The dashboard counts these as booked but says how many are still to be confirmed. The existing-client alert goes to the senior Telegram channel **after** the call, not during it.
-
-**Option to restore exact wording and in-call booking: Vaani's "Bring your own LLM" (BYOL).** Vaani can send every turn to my server over a persistent WebSocket, so my engine writes each line and nothing is paraphrased. It needs an always-on server (Vercel cannot hold WebSockets), which means one more hosting account. The turn-by-turn engine for this already exists in the code (`src/session/call-session.ts`).
-
-## Testing
-
-`npm test` runs 95 tests. `npm run live:extract` runs the real conversations through live Gemini (needs `GEMINI_API_KEY`). `npm run test:transcripts` prints the T01-T20 table.
-
-`qualification-logic.md` contains only a **summary** of the validated results, not a per-call table, so I compared against *my reading* of the spec for each call. That reading is mine, and so are the hand-extracted facts, so agreement shows the logic is consistent with the spec, not that it was independently validated.
-
-**Counts match the spec exactly:** 12 qualified, 5 declined, 1 deferred, 1 escalated, T08 ops failure.
-
-| Call | Expected | Build | Note |
-|---|---|---|---|
-| T01, T06, T12, T15, T20 | qualified | qualified | T15 sits exactly on the 6-week boundary and passes |
-| T02, T05, T17 | qualified | qualified, flagged | Transcript never asked who decides, so the live agent asks once; if still unclear it goes forward flagged |
-| T11, T13, T14 | qualified | qualified, flagged | Timeline never stated in the transcript; the live agent asks |
-| T16 | qualified | qualified, flagged | Almost no detail in the transcript (it's the callback chaser) |
-| T03, T04, T10, T18, T19 | declined | declined | Nashik; advice only; budget ₹1-1.5 lakh; 180 sq ft; restaurant |
-| T07 | deferred | deferred | Three weeks to Diwali; offered the next realistic start |
-| T09 | escalated | escalated | Existing client, senior callback |
-| T08 | ops failure | n/a | Missed call. The new system answers every call |
-
-**Spec inconsistency found:** its summary says "19 of 20 non-ops calls" but its categories add to 21. T16 is counted both as qualified and as an ops failure. Note also that T17 is two calls (the first dropped); the dropped one is logged as abandoned.
-
-**No mismatches with the spec's verdicts.** Where I filled gaps in the spec, see the next section.
-
-## Judgment calls for Nikhil to confirm
-
-The spec says the logic is final, so these are only gaps, all marked in the code:
-
-1. **A budget that is clearly too low, on its own, declines.** The decision list doesn't cover it; `qualified.md` says "do not forward", and T10 needs it. "Clearly below" = under 60% of the lowest `pricing.md` figure for that scope (my threshold). Those numbers are used internally and never spoken.
-2. **Still unclear after the one follow-up: forward with a flag, not decline.** Losing a ₹8-14 lakh lead costs more than a few designer minutes.
-3. **The 500 sq ft commercial minimum** comes from a front-desk line in T18, not `services.md`. It's a setting.
-4. **The "8-10 weeks from consultation" site rule isn't enforced.** Applied literally it would fail T01, T12 and T20. Only the 6-week minimum is.
-5. **Three lines have no wording in the spec** (the escalation line, the deferral offer, the booking confirmations), and a fallback line if the server fails mid-call. I wrote them; they are marked "NOT IN SPEC".
-6. **Extra Pune neighbourhoods** (Kharadi, Nanded City, etc.) are treated as "adjoining areas", since real calls mention them.
-
-## Cost
-
-The ledger records every billable event per call. All rates are estimates until confirmed.
+Consequences, stated plainly: the agent **cannot book during the call**. It tells the caller the designer will phone to confirm a time. After the call the server books the time the caller chose, if it is free (see above), and the designer is told to phone and confirm. A call that captured nothing about the project is logged as dropped, not as a lead.
 
 - Voice: **₹5.58 per minute** is the estimate Vaani's dashboard shows for this agent (it can change with the voice and model chosen, and may exclude telephony). OpenAI gpt-4o is bundled into that estimate.
 - Gemini: **measured** about ₹0.13 per call (19 real conversations, about 3 model reads each, ₹2.43 in total). Switching off the model's hidden reasoning cut this ~6x; left on, it cost ₹0.80 per single read.
