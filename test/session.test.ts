@@ -54,7 +54,7 @@ test("qualified call: books in-call, sends handoff with the booking, creates the
   assert.equal(rec.handoffStatus, "sent"); assert.equal(rec.crmStatus, "created"); assert.equal(rec.crmDealId, "deal-1");
   assert.equal(calendar.booked.length, 1);
   assert.equal(notifier.sent[0].channel, "designers");
-  assert.ok(notifier.sent[0].text.includes("Consultation booked: YES"));
+  assert.ok(notifier.sent[0].text.includes("Consultation: BOOKED for"));
   assert.ok(notifier.sent[0].text.includes("Kothrud"));
   assert.equal(crm.deals.length, 1);
   assert.equal(repo.costs.some((c) => c.service === "gemini"), true);
@@ -124,17 +124,17 @@ test("calendar failure: caller is told the designer will call; handoff and deal 
   const r = await session.hear("first one");
   assert.ok(r.say.includes("call you to confirm")); assert.equal(r.end, true);
   const rec = await end(session);
-  // The in-call booking failed, so the after-call step tried again and succeeded: provisional.
-  assert.equal(rec.bookingStatus, "provisional"); assert.equal(rec.handoffStatus, "sent"); assert.equal(rec.crmStatus, "created");
-  assert.ok(notifier.sent[0].text.includes("PROVISIONALLY BOOKED")); assert.equal(crm.deals.length, 1);
+  // The in-call booking failed and the caller named no time, so nothing is booked and the designer gets free slots.
+  assert.equal(rec.bookingStatus, "failed"); assert.equal(rec.handoffStatus, "sent"); assert.equal(rec.crmStatus, "created");
+  assert.ok(notifier.sent[0].text.includes("NOT BOOKED") && notifier.sent[0].text.includes("Free slots to offer")); assert.equal(crm.deals.length, 1);
 });
 
 test("caller hangs up while slots are offered: lead is still handed off and logged", async () => {
   const { session, notifier } = await setup([fixture("T01")]);
   await session.hear("full redesign in Kothrud");
   const rec = await end(session);
-  assert.equal(rec.verdict, "qualified"); assert.equal(rec.bookingStatus, "provisional"); assert.equal(rec.handoffStatus, "sent");
-  assert.ok(notifier.sent[0].text.includes("PROVISIONALLY BOOKED"));
+  assert.equal(rec.verdict, "qualified"); assert.equal(rec.bookingStatus, "offered"); assert.equal(rec.handoffStatus, "sent");
+  assert.ok(notifier.sent[0].text.includes("NOT BOOKED") && notifier.sent[0].text.includes("did not choose a time"));
 });
 
 test("caller declines the slots: no booking, lead still forwarded", async () => {

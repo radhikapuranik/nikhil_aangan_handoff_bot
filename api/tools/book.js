@@ -785,15 +785,20 @@ var CalComCalendar = class {
     this.emailFallback = emailFallback;
     this.fetchImpl = fetchImpl;
   }
-  async findSlots(count, after) {
-    const end = new Date(after.getTime() + 10 * 864e5);
-    const qs = new URLSearchParams({ eventTypeId: String(this.eventTypeId), start: after.toISOString(), end: end.toISOString(), timeZone: TZ });
+  async fetchSlots(from, to) {
+    const qs = new URLSearchParams({ eventTypeId: String(this.eventTypeId), start: from.toISOString(), end: to.toISOString(), timeZone: TZ });
     const res = await this.fetchImpl(`https://api.cal.com/v2/slots?${qs}`, {
       headers: { Authorization: `Bearer ${this.apiKey}`, "cal-api-version": "2024-09-04" }
     });
     if (!res.ok) throw new Error(`Cal.com slots -> ${res.status}: ${await res.text()}`);
     const body = await res.json();
-    const all = Object.values(body.data ?? {}).flat().map((s) => s.start).sort();
+    return Object.values(body.data ?? {}).flat().map((s) => s.start).sort();
+  }
+  async slotsBetween(from, to) {
+    return (await this.fetchSlots(from, to)).map((start) => ({ start, label: slotLabel(start) }));
+  }
+  async findSlots(count, after) {
+    const all = await this.fetchSlots(after, new Date(after.getTime() + 10 * 864e5));
     const picked = [];
     for (const s of all) {
       if (picked.length >= count) break;
@@ -866,6 +871,10 @@ function normaliseFacts(raw, prior) {
     },
     decisionMaker: pick(raw.decisionMaker, DECISION_MAKERS, "unknown"),
     decisionMakerNote: str(raw.decisionMakerNote),
+    preferredStart: (() => {
+      const v = str(raw.preferredStart);
+      return v && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null;
+    })(),
     budgetLakh: fromRupees ?? (b && num(b.min) !== null && num(b.max) !== null ? { min: num(b.min), max: num(b.max) } : null)
   };
   if (facts.timeline.kind === "unknown") facts.timeline.weeks = null;
@@ -877,6 +886,7 @@ function normaliseFacts(raw, prior) {
     facts.rooms ??= prior.rooms;
     facts.currentState ??= prior.currentState;
     facts.budgetLakh ??= prior.budgetLakh;
+    facts.preferredStart ??= prior.preferredStart ?? null;
     if (facts.serviceType === "unknown") facts.serviceType = prior.serviceType;
     if (facts.intent === "unclear") facts.intent = prior.intent;
     if (facts.timeline.kind === "unknown") facts.timeline = prior.timeline;
@@ -895,6 +905,7 @@ var EXTRACT_SYSTEM = `You read a phone conversation between a caller and the Aan
 - timeline, weeks counted from today: kind start_by = the date execution (building work) must START; complete_by = the date the project must be FINISHED, or the caller must move in / be operational; flexible = no deadline; unknown = not stated. A date for starting DESIGN or a planning step is not an execution start: ignore it and use the move-in or finish date. If the caller first states a deadline and later floats a different date, keep the first stated deadline.
   Examples: "We move in November, so maybe starting design from October" -> complete_by (the move-in), NOT start_by. "I want it done before Diwali" when the conversation says Diwali is three weeks away -> complete_by, weeks 3. "We'd like to start execution in January" -> start_by. "Done by March, no rush" -> complete_by. If the conversation itself says how far away a date is (for example "Diwali is three weeks away"), use that figure instead of your own calendar knowledge; otherwise work it out from today's date.
 - decisionMaker: self; authorised (spouse/partner who is not on the call has told them to go ahead); family_attending (e.g. parents who will attend the consultation and decide); research_only (just researching for someone else, no confirmation they will be involved); else unknown.
+- preferredStart: the consultation day and time the CALLER chose (for example "Thursday at 11 am"), as ISO 8601 with the +05:30 India offset, resolving words like "tomorrow" or "Thursday" from today's date (a weekday alone means the next such day). null if the caller has not chosen a time.
 - budgetMinRupees / budgetMaxRupees: ONLY if the caller states a budget figure, as whole rupees (1 lakh = 100000, so "1 to 1.5 lakh" is 100000 and 150000; a single figure goes in both). Otherwise null. Use whole numbers for every number field.
 Today is {TODAY}.`;
 var EXTRACT_SCHEMA = {
@@ -917,6 +928,7 @@ var EXTRACT_SCHEMA = {
     decisionMaker: { type: "STRING", enum: DECISION_MAKERS },
     decisionMakerNote: { type: "STRING", nullable: true },
     // Whole rupees, not lakh: a decimal like 1.5 made the model loop on zeros.
+    preferredStart: { type: "STRING", nullable: true },
     budgetMinRupees: { type: "INTEGER", nullable: true },
     budgetMaxRupees: { type: "INTEGER", nullable: true }
   },
@@ -974,7 +986,7 @@ var GeminiLlm = class {
   }
   async extractFacts(transcript, prior) {
     const { json: json2, usage } = await this.generate(
-      EXTRACT_SYSTEM.replace("{TODAY}", this.now().toISOString().slice(0, 10)),
+      EXTRACT_SYSTEM.replace("{TODAY}", `${new Date(this.now().getTime() + 330 * 6e4).toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })} ${new Date(this.now().getTime() + 330 * 6e4).toISOString().slice(0, 10)}`),
       asText(transcript),
       EXTRACT_SCHEMA
     );
@@ -1104,6 +1116,24 @@ var MockCalendar = class {
     }
     return out;
   }
+  // Hourly slots 9:00-18:00 IST, Monday to Saturday, at least 2 hours from now, not already booked.
+  async slotsBetween(from, to) {
+    const out = [];
+    const earliest = Date.now() + 2 * 36e5;
+    const startDay = new Date(from.getTime() + 330 * 6e4);
+    startDay.setUTCHours(0, 0, 0, 0);
+    for (let d = startDay.getTime(); d < to.getTime() + 330 * 6e4; d += 864e5) {
+      if (new Date(d).getUTCDay() === 0) continue;
+      for (let h = 9; h <= 18; h++) {
+        const start = new Date(d + h * 36e5 - 330 * 6e4);
+        if (start < from || start >= to || start.getTime() < earliest) continue;
+        const iso = start.toISOString();
+        if (this.booked.some((b) => new Date(b.slot.start).getTime() === start.getTime())) continue;
+        out.push({ start: iso, label: slotLabel(iso) });
+      }
+    }
+    return out;
+  }
   async book(a) {
     if (this.failNext) {
       this.failNext = false;
@@ -1190,7 +1220,8 @@ function buildHandoffNote(f2, d, booking) {
     `Budget signal: ${budget}`,
     `Decision-maker: ${dm[f2.decisionMaker]}${f2.decisionMakerNote ? " \u2014 " + f2.decisionMakerNote : ""}`,
     `Uncertainty flags: ${d.flags.length ? d.flags.join("; ") : "none"}`,
-    booking.provisional ? `Consultation: PROVISIONALLY BOOKED${booking.when ? " for " + booking.when : ""}. The caller was told only that the designer will call to confirm a time, so please phone them to confirm or move it.` : `Consultation booked: ${booking.booked ? "YES" + (booking.when ? " \u2014 " + booking.when : "") : "no"}`,
+    booking.chosenTime ? `Caller's chosen time: ${booking.chosenTime}` : "Caller's chosen time: none given",
+    booking.booked ? `Consultation: BOOKED for ${booking.when ?? "the caller's chosen time"}${booking.chosenTime ? " (the time the caller chose)" : ""}. Please phone the caller to confirm.` : booking.provisional ? `Consultation: PROVISIONALLY BOOKED${booking.when ? " for " + booking.when : ""}. Please phone the caller to confirm or move it.` : `Consultation: NOT BOOKED. ${booking.chosenTime ? booking.chosenTaken ? "The time the caller asked for is not free." : "The time the caller asked for could not be booked." : "The caller did not choose a time."} Please phone them to arrange one.`,
     ...!booking.booked && booking.suggested?.length ? [`Free slots to offer the caller: ${booking.suggested.join(" | ")}`] : []
   ].join("\n");
 }
@@ -1272,6 +1303,11 @@ var ISSUE_TEXT = {
 };
 
 // src/session/post-call.ts
+var slotLabelIST = (d) => d.toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+function nearby(free, chosen) {
+  const t = chosen?.getTime() ?? 0;
+  return [...free].sort((a, b) => Math.abs(new Date(a.start).getTime() - t) - Math.abs(new Date(b.start).getTime() - t)).slice(0, 3).sort((a, b) => a.start.localeCompare(b.start)).map((x) => x.label);
+}
 async function completeCall(d, rec, o) {
   if (rec.verdict !== "in_progress") return rec;
   const rates = d.rates ?? DEFAULT_RATES;
@@ -1283,36 +1319,43 @@ async function completeCall(d, rec, o) {
   let crm;
   if (dec?.verdict === "qualified" && o.facts) {
     let suggested;
-    let provisional = null;
+    let chosenTaken = false;
+    const chosen = o.facts.preferredStart ? new Date(o.facts.preferredStart) : null;
+    const chosenLabel = chosen ? slotLabelIST(chosen) : void 0;
     if (o.booking.status !== "booked" && o.booking.status !== "declined_by_caller") {
       try {
-        const slots = await d.calendar.findSlots(3, /* @__PURE__ */ new Date());
+        const now2 = /* @__PURE__ */ new Date();
+        const dayStart = chosen ? new Date(chosen.getTime() - 12 * 36e5) : now2;
+        const dayEnd = chosen ? new Date(chosen.getTime() + 36 * 36e5) : new Date(now2.getTime() + 10 * 864e5);
+        const free = await d.calendar.slotsBetween(chosen && chosen > now2 ? dayStart : now2, dayEnd);
         costs.push(calcomCost(rates));
-        if (d.autoBook !== false && slots.length) {
+        const exact = chosen ? free.find((x) => new Date(x.start).getTime() === chosen.getTime()) : void 0;
+        if (exact && d.autoBook !== false) {
           try {
-            const first = slots[0];
             const made = await d.calendar.book({
-              slot: first,
+              slot: exact,
               name: o.facts.callerName ?? null,
               phone: o.facts.phone ?? rec.callerPhone ?? null,
-              notes: buildHandoffNote(o.facts, dec, { booked: false, provisional: true, when: first.label })
+              notes: buildHandoffNote(o.facts, dec, { booked: true, when: exact.label, chosenTime: chosenLabel })
             });
             costs.push(calcomCost(rates));
-            provisional = { time: made.start, ref: made.ref, label: first.label };
-            suggested = slots.slice(1).map((x) => x.label);
+            o.booking = { status: "booked", time: made.start, ref: made.ref };
           } catch {
-            suggested = slots.map((x) => x.label);
+            suggested = nearby(free, chosen);
           }
-        } else suggested = slots.map((x) => x.label);
+        } else {
+          chosenTaken = Boolean(chosen);
+          suggested = nearby(free, chosen);
+        }
       } catch {
       }
     }
-    if (provisional) o.booking = { status: "provisional", time: provisional.time, ref: provisional.ref };
     const note = buildHandoffNote(o.facts, dec, {
       booked: o.booking.status === "booked",
       suggested,
-      provisional: Boolean(provisional),
-      when: provisional?.label ?? (o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : void 0)
+      chosenTime: chosenLabel,
+      chosenTaken,
+      when: o.booking.time ? slotLabelIST(new Date(o.booking.time)) : void 0
     });
     try {
       await d.notifier.send("designers", note);
@@ -1790,6 +1833,10 @@ async function finalizeCall(d, f2) {
   } else if (rec.facts) {
     decision = evaluate(rec.facts, { c1: 2, c2: 2, c3: 2, c5: 2 }, today);
   }
+  const known = facts;
+  if (turns && decision?.verdict === "qualified" && known && known.serviceType === "unknown" && known.intent === "unclear" && !known.location && !known.sqft && known.timeline.kind === "unknown" && !known.existingClient) {
+    decision = null;
+  }
   if (turns) {
     audit = auditAgentTurns(turns, { verdict: decision?.verdict ?? "abandoned" });
     if (rec.bookingStatus === "booked" && decision && decision.verdict !== "qualified") audit.push("booked_despite_verdict");
@@ -1807,7 +1854,7 @@ async function finalizeCall(d, f2) {
     calendarCalls: 0,
     audit
   });
-  if (reasonless) await d.repo.updateCall(done.id, { reasons: [turns ? "no caller speech in the transcript" : "call ended with no transcript and no tool activity"] });
+  if (reasonless) await d.repo.updateCall(done.id, { reasons: [turns ? "no enquiry details were captured in the call" : "call ended with no transcript and no tool activity"] });
   return done;
 }
 

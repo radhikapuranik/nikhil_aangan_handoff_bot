@@ -846,6 +846,7 @@ var EXTRACT_SCHEMA = {
     decisionMaker: { type: "STRING", enum: DECISION_MAKERS },
     decisionMakerNote: { type: "STRING", nullable: true },
     // Whole rupees, not lakh: a decimal like 1.5 made the model loop on zeros.
+    preferredStart: { type: "STRING", nullable: true },
     budgetMinRupees: { type: "INTEGER", nullable: true },
     budgetMaxRupees: { type: "INTEGER", nullable: true }
   },

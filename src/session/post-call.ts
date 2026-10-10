@@ -9,6 +9,15 @@ import type { BookingStatus, CallRecord, CrmStatus, HandoffStatus, TranscriptTur
 import type { Usage } from "../integrations/types.ts";
 import type { SessionDeps } from "./call-session.ts";
 
+const slotLabelIST = (d: Date) => d.toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+
+// Up to three free slots nearest the caller's chosen time (or the next free ones).
+function nearby(free: { start: string; label: string }[], chosen: Date | null): string[] {
+  const t = chosen?.getTime() ?? 0;
+  return [...free].sort((a, b) => Math.abs(new Date(a.start).getTime() - t) - Math.abs(new Date(b.start).getTime() - t)).slice(0, 3)
+    .sort((a, b) => a.start.localeCompare(b.start)).map((x) => x.label);
+}
+
 export interface CallOutcome {
   decision: Decision | null;
   facts: CallFacts | null;
@@ -37,32 +46,39 @@ export async function completeCall(d: SessionDeps, rec: CallRecord, o: CallOutco
   let crm: { status: CrmStatus; dealId?: string } | undefined;
 
   if (dec?.verdict === "qualified" && o.facts) {
-    // Not booked during the call. Book the first free slot now, marked provisional (the caller was
-    // only told the designer will confirm a time). If that fails, list free slots instead.
+    // Not booked during the call. If the caller chose a day and time, book exactly that time if it is
+    // free. If they chose none, or it is taken, book NOTHING: the designer offers free slots by phone.
     let suggested: string[] | undefined;
-    let provisional: { time: string; ref: string; label: string } | null = null;
+    let chosenTaken = false;
+    const chosen = o.facts.preferredStart ? new Date(o.facts.preferredStart) : null;
+    const chosenLabel = chosen ? slotLabelIST(chosen) : undefined;
     // A caller who said no to a booking is never booked.
     if (o.booking.status !== "booked" && o.booking.status !== "declined_by_caller") {
       try {
-        const slots = await d.calendar.findSlots(3, new Date());
+        const now = new Date();
+        const dayStart = chosen ? new Date(chosen.getTime() - 12 * 3600000) : now;
+        const dayEnd = chosen ? new Date(chosen.getTime() + 36 * 3600000) : new Date(now.getTime() + 10 * 86400000);
+        const free = await d.calendar.slotsBetween(chosen && chosen > now ? dayStart : now, dayEnd);
         costs.push(calcomCost(rates));
-        if (d.autoBook !== false && slots.length) {
+        const exact = chosen ? free.find((x) => new Date(x.start).getTime() === chosen.getTime()) : undefined;
+        if (exact && d.autoBook !== false) {
           try {
-            const first = slots[0];
             const made = await d.calendar.book({
-              slot: first, name: o.facts.callerName ?? null, phone: o.facts.phone ?? rec.callerPhone ?? null,
-              notes: buildHandoffNote(o.facts, dec, { booked: false, provisional: true, when: first.label }),
+              slot: exact, name: o.facts.callerName ?? null, phone: o.facts.phone ?? rec.callerPhone ?? null,
+              notes: buildHandoffNote(o.facts, dec, { booked: true, when: exact.label, chosenTime: chosenLabel }),
             });
             costs.push(calcomCost(rates));
-            provisional = { time: made.start, ref: made.ref, label: first.label };
-            suggested = slots.slice(1).map((x) => x.label); // alternatives if the first does not suit
-          } catch { suggested = slots.map((x) => x.label); }
-        } else suggested = slots.map((x) => x.label);
+            o.booking = { status: "booked", time: made.start, ref: made.ref };
+          } catch { suggested = nearby(free, chosen); }
+        } else {
+          chosenTaken = Boolean(chosen);
+          suggested = nearby(free, chosen);
+        }
       } catch { /* the note is still useful without slots */ }
     }
-    if (provisional) o.booking = { status: "provisional", time: provisional.time, ref: provisional.ref };
     const note = buildHandoffNote(o.facts, dec, {
-      booked: o.booking.status === "booked", suggested, provisional: Boolean(provisional), when: provisional?.label ?? (o.booking.time ? new Date(o.booking.time).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Kolkata" }) : undefined),
+      booked: o.booking.status === "booked", suggested, chosenTime: chosenLabel, chosenTaken,
+      when: o.booking.time ? slotLabelIST(new Date(o.booking.time)) : undefined,
     });
     try { await d.notifier.send("designers", note); costs.push(telegramCost(rates)); handoff = { status: "sent" }; }
     catch { handoff = { status: "failed" }; }

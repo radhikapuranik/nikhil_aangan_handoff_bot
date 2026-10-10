@@ -17,6 +17,8 @@ export interface Slot { start: string; label: string } // start = ISO, label = s
 
 export interface Calendar {
   findSlots(count: number, after: Date): Promise<Slot[]>;
+  // Every free slot in a window, so a caller's chosen time can be checked exactly.
+  slotsBetween(from: Date, to: Date): Promise<Slot[]>;
   book(a: { slot: Slot; name: string | null; phone: string | null; notes: string }): Promise<{ ref: string; start: string }>;
 }
 

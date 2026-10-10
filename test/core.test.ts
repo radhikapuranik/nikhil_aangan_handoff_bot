@@ -134,7 +134,7 @@ test("a pricing question never changes the verdict (it is not a check)", () => {
 test("handoff note carries every field from the spec", () => {
   const f = withF({ callerName: "Priya", phone: "+91 98xxxxxx01", decisionMaker: "authorised", decisionMakerNote: "husband agrees" });
   const note = buildHandoffNote(f, evaluate(f, {}, today), { booked: true, when: "Mon 13 Oct 11:00" });
-  for (const s of ["Priya", "+91 98xxxxxx01", "full home", "Baner", "1000 sq ft", "bare shell", "Timeline:", "Budget signal:", "Decision-maker:", "Uncertainty flags:", "Consultation booked: YES — Mon 13 Oct 11:00"])
+  for (const s of ["Priya", "+91 98xxxxxx01", "full home", "Baner", "1000 sq ft", "bare shell", "Timeline:", "Budget signal:", "Decision-maker:", "Uncertainty flags:", "Consultation: BOOKED for Mon 13 Oct 11:00"])
     assert.ok(note.includes(s), s);
 });
 

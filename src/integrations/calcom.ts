@@ -25,15 +25,22 @@ export class CalComCalendar implements Calendar {
     this.fetchImpl = fetchImpl;
   }
 
-  async findSlots(count: number, after: Date): Promise<Slot[]> {
-    const end = new Date(after.getTime() + 10 * 86400000);
-    const qs = new URLSearchParams({ eventTypeId: String(this.eventTypeId), start: after.toISOString(), end: end.toISOString(), timeZone: TZ });
+  private async fetchSlots(from: Date, to: Date): Promise<string[]> {
+    const qs = new URLSearchParams({ eventTypeId: String(this.eventTypeId), start: from.toISOString(), end: to.toISOString(), timeZone: TZ });
     const res = await this.fetchImpl(`https://api.cal.com/v2/slots?${qs}`, {
       headers: { Authorization: `Bearer ${this.apiKey}`, "cal-api-version": "2024-09-04" },
     });
     if (!res.ok) throw new Error(`Cal.com slots -> ${res.status}: ${await res.text()}`);
     const body = (await res.json()) as { data?: Record<string, { start: string }[]> };
-    const all = Object.values(body.data ?? {}).flat().map((s) => s.start).sort();
+    return Object.values(body.data ?? {}).flat().map((s) => s.start).sort();
+  }
+
+  async slotsBetween(from: Date, to: Date): Promise<Slot[]> {
+    return (await this.fetchSlots(from, to)).map((start) => ({ start, label: slotLabel(start) }));
+  }
+
+  async findSlots(count: number, after: Date): Promise<Slot[]> {
+    const all = await this.fetchSlots(after, new Date(after.getTime() + 10 * 86400000));
     // Spread offers over different days so the caller has a real choice.
     const picked: string[] = [];
     for (const s of all) {

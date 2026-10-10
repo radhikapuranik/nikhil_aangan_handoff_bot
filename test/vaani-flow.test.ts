@@ -40,7 +40,8 @@ test("generated Vaani instructions carry every script verbatim and the hard rule
     assert.ok(t.includes(s), s);
   assert.ok(t.includes("NEVER ask about budget")); assert.ok(t.includes("Nashik"));
   assert.ok(!t.includes("aangan_desk"), "default prompt must not mention a tool the AI may read aloud");
-  assert.ok(t.includes("You cannot book appointments yourself"));
+  assert.ok(t.includes("What day and time would suit you for the consultation?") && t.includes("Never choose a time for them"));
+  assert.ok(t.includes("best number for your designer"));
   const withTool = buildAgentInstructions({ useTool: true });
   assert.ok(withTool.includes("@aangan_desk") && withTool.includes(PRICING_DEFLECTION));
   assert.ok(!/₹|lakh per|per sq ?ft rate/i.test(t.replace(/one to one and a half lakh|1 lakh/gi, "")), "instructions must contain no price figure");
@@ -127,7 +128,7 @@ test("tool-driven call end to end: qualify, offer slots, book, then the complete
   const rec = (await repo.getByProviderCallId("v1"))!;
   assert.equal(rec.bookingStatus, "booked"); assert.equal(rec.handoffStatus, "sent"); assert.equal(rec.crmStatus, "created");
   assert.deepEqual(rec.auditIssues, []);
-  assert.equal(notifier.sent.length, 1); assert.ok(notifier.sent[0].text.includes("Consultation booked: YES")); assert.equal(crm.deals.length, 1);
+  assert.equal(notifier.sent.length, 1); assert.ok(notifier.sent[0].text.includes("Consultation: BOOKED for")); assert.equal(crm.deals.length, 1);
   assert.equal(repo.costs.filter((c) => c.service === "calcom").length, 2); // availability + book, counted once each
 });
 
@@ -196,7 +197,7 @@ test("one desk tool: action picks qualify, availability or book; unknown action 
 
 // ---- the real app.vaanivoice.ai webhook: {event, call_id, timestamp, data} ----------------
 
-function nativeHandler(details: (id: string) => { status: number; body?: object } | "throw", apiKey: string | null = "vk") {
+function nativeHandler(details: (id: string) => { status: number; body?: object } | "throw", apiKey: string | null = "vk", facts?: CallFacts) {
   const seen: { url: string; key: string | null }[] = [];
   const fetchImpl = (async (url: string, init: RequestInit = {}) => {
     seen.push({ url, key: (init.headers as Record<string, string>)?.["X-API-Key"] ?? null });
@@ -204,7 +205,7 @@ function nativeHandler(details: (id: string) => { status: number; body?: object 
     if (r === "throw") throw new Error("network");
     return new Response(JSON.stringify(r.body ?? {}), { status: r.status });
   }) as unknown as typeof fetch;
-  const b = build();
+  const b = build(facts);
   const handle = createHandler(b.deps, { brainSecret: SECRET, vaaniWebhookSecret: "", vaaniApiKey: apiKey ?? undefined, fetchImpl });
   return { ...b, handle, seen };
 }
@@ -262,31 +263,67 @@ test("native webhook: matches the call the desk tool opened, by time, since Vaan
   assert.equal(repo.calls.size, 1); assert.equal([...repo.calls.values()][0].providerCallId, "inbound-1-abc");
 });
 
-test("after the call, a qualified caller is auto-booked provisionally and the designer is told to confirm", async () => {
-  const { handle, notifier, repo, calendar } = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
-  await nativePost(handle, post_event);
-  const rec = (await repo.getByProviderCallId("inbound-1-abc"))!;
-  assert.equal(rec.bookingStatus, "provisional"); assert.ok(rec.bookingRef); assert.ok(rec.bookingTime);
-  assert.equal(calendar.booked.length, 1); assert.ok(calendar.booked[0].notes.includes("PROVISIONALLY BOOKED"));
-  assert.ok(notifier.sent[0].text.includes("PROVISIONALLY BOOKED") && notifier.sent[0].text.includes("phone them to confirm"));
-  assert.ok(notifier.sent[0].text.includes("Free slots to offer the caller:")); // alternatives if the first does not suit
-  assert.equal(repo.costs.filter((c) => c.service === "calcom").length, 2); // slots lookup + booking
+const T = () => ({ status: 200, body: { transcription: TRANSCRIPT } });
+const t01 = fx("T01");
+const freeSlot = async (cal: MockCalendar, nth = 3) => (await cal.slotsBetween(new Date(), new Date(Date.now() + 10 * 86400000)))[nth];
+
+test("the caller's chosen time is booked exactly, if it is free", async () => {
+  const cal = new MockCalendar(); const slot = await freeSlot(cal);
+  const h = nativeHandler(T, "vk", { ...t01, preferredStart: slot.start });
+  await nativePost(h.handle, post_event);
+  const rec = (await h.repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.equal(rec.bookingStatus, "booked"); assert.equal(new Date(rec.bookingTime!).getTime(), new Date(slot.start).getTime());
+  assert.equal(h.calendar.booked.length, 1); assert.equal(new Date(h.calendar.booked[0].slot.start).getTime(), new Date(slot.start).getTime());
+  const note = h.notifier.sent[0].text;
+  assert.ok(note.includes("BOOKED for") && note.includes("the time the caller chose") && note.includes("Caller's chosen time:"));
+  assert.ok(!note.includes("Free slots to offer"));
   const s = summarise([rec], [], [{ service: "n", monthlyInr: 0, activeFrom: "2020-01-01", activeTo: null }], { from: "2020-01-01T00:00:00Z", to: "2030-01-01T00:00:00Z" });
-  assert.equal(s.consultationsBooked, 1); assert.equal(s.consultationsProvisional, 1);
+  assert.equal(s.consultationsBooked, 1);
 });
 
-test("auto-booking falls back to listing slots when the calendar refuses, and can be switched off", async () => {
-  const a = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
-  a.calendar.failNext = true;
-  await nativePost(a.handle, post_event);
-  const rec = (await a.repo.getByProviderCallId("inbound-1-abc"))!;
-  assert.notEqual(rec.bookingStatus, "provisional"); assert.equal(rec.handoffStatus, "sent");
-  assert.ok(a.notifier.sent[0].text.includes("Free slots to offer the caller:") && !a.notifier.sent[0].text.includes("PROVISIONALLY"));
+test("if the caller's time is taken, nothing is booked and the designer gets nearby free slots", async () => {
+  const h = nativeHandler(T, "vk", t01);
+  const slot = await freeSlot(h.calendar);
+  await h.calendar.book({ slot, name: "someone else", phone: null, notes: "" }); // someone already holds it
+  h.deps.llm.extractFacts = async () => ({ facts: { ...t01, preferredStart: slot.start }, usage: { inputTokens: 1, outputTokens: 1 } });
+  await nativePost(h.handle, post_event);
+  const rec = (await h.repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.notEqual(rec.bookingStatus, "booked"); assert.equal(h.calendar.booked.length, 1); // still only the other person's
+  const note = h.notifier.sent[0].text;
+  assert.ok(note.includes("NOT BOOKED") && note.includes("not free") && note.includes("Free slots to offer the caller:"));
+});
 
-  const b = nativeHandler(() => ({ status: 200, body: { transcription: TRANSCRIPT } }));
-  b.deps.autoBook = false;
-  await nativePost(b.handle, post_event);
-  assert.equal(b.calendar.booked.length, 0); assert.ok(b.notifier.sent[0].text.includes("Free slots to offer the caller:"));
+test("no chosen time means no booking: the designer is told to arrange one", async () => {
+  const h = nativeHandler(T);
+  await nativePost(h.handle, post_event);
+  assert.equal(h.calendar.booked.length, 0);
+  const rec = (await h.repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.notEqual(rec.bookingStatus, "booked"); assert.equal(rec.handoffStatus, "sent");
+  assert.ok(h.notifier.sent[0].text.includes("The caller did not choose a time"));
+});
+
+test("a time outside hours (Sunday) is not booked", async () => {
+  const sunday = new Date(); sunday.setUTCDate(sunday.getUTCDate() + ((7 - sunday.getUTCDay()) % 7 || 7)); sunday.setUTCHours(6, 30, 0, 0); // Sunday 12:00 IST
+  const h = nativeHandler(T, "vk", { ...t01, preferredStart: sunday.toISOString() });
+  await nativePost(h.handle, post_event);
+  assert.equal(h.calendar.booked.length, 0); assert.ok(h.notifier.sent[0].text.includes("NOT BOOKED"));
+});
+
+test("auto-booking can be switched off", async () => {
+  const cal = new MockCalendar(); const slot = await freeSlot(cal);
+  const h = nativeHandler(T, "vk", { ...t01, preferredStart: slot.start });
+  h.deps.autoBook = false;
+  await nativePost(h.handle, post_event);
+  assert.equal(h.calendar.booked.length, 0); assert.ok(h.notifier.sent[0].text.includes("NOT BOOKED"));
+});
+
+test("a call that captured nothing about the project is not a lead", async () => {
+  const empty: CallFacts = { existingClient: false, serviceType: "unknown", intent: "unclear", location: null, sqft: null, rooms: null, currentState: null, timeline: { kind: "unknown", weeks: null }, decisionMaker: "unknown", budgetLakh: null };
+  const h = nativeHandler(() => ({ status: 200, body: { transcription: "AGENT: Good morning, Aangan Studio\nUSER: hello hello can you hear me" } }), "vk", empty);
+  await nativePost(h.handle, post_event);
+  const rec = (await h.repo.getByProviderCallId("inbound-1-abc"))!;
+  assert.equal(rec.verdict, "abandoned"); assert.ok(rec.reasons[0].includes("no enquiry details"));
+  assert.equal(h.notifier.sent.filter((m) => m.channel === "designers").length, 0); assert.equal(h.crm.deals.length, 0); assert.equal(h.calendar.booked.length, 0);
 });
 
 test("declined, deferred and already-booked calls are never auto-booked", async () => {

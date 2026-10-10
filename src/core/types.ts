@@ -32,6 +32,7 @@ export interface CallFacts {
   decisionMaker: DecisionMaker;
   decisionMakerNote?: string | null;
   budgetLakh: { min: number; max: number } | null; // only if volunteered
+  preferredStart?: string | null; // consultation date/time the caller chose, ISO 8601
 }
 
 export type Criterion = "c1" | "c2" | "c3" | "c4" | "c5";

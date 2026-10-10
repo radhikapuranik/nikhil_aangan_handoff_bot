@@ -77,6 +77,23 @@ export class MockCalendar implements Calendar {
     }
     return out;
   }
+  // Hourly slots 9:00-18:00 IST, Monday to Saturday, at least 2 hours from now, not already booked.
+  async slotsBetween(from: Date, to: Date) {
+    const out: Slot[] = [];
+    const earliest = Date.now() + 2 * 3600000;
+    const startDay = new Date(from.getTime() + 330 * 60000); startDay.setUTCHours(0, 0, 0, 0);
+    for (let d = startDay.getTime(); d < to.getTime() + 330 * 60000; d += 86400000) {
+      if (new Date(d).getUTCDay() === 0) continue;
+      for (let h = 9; h <= 18; h++) {
+        const start = new Date(d + h * 3600000 - 330 * 60000);
+        if (start < from || start >= to || start.getTime() < earliest) continue;
+        const iso = start.toISOString();
+        if (this.booked.some((b) => new Date(b.slot.start).getTime() === start.getTime())) continue;
+        out.push({ start: iso, label: slotLabel(iso) });
+      }
+    }
+    return out;
+  }
   async book(a: { slot: Slot; name: string | null; phone: string | null; notes: string }) {
     if (this.failNext) { this.failNext = false; throw new Error("mock calendar failure"); }
     const ref = "mock-" + randomUUID().slice(0, 8);

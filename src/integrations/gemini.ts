@@ -38,6 +38,7 @@ export function normaliseFacts(raw: Record<string, unknown>, prior: CallFacts | 
     },
     decisionMaker: pick(raw.decisionMaker, DECISION_MAKERS, "unknown"),
     decisionMakerNote: str(raw.decisionMakerNote),
+    preferredStart: (() => { const v = str(raw.preferredStart); return v && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null; })(),
     budgetLakh: fromRupees ?? (b && num(b.min) !== null && num(b.max) !== null ? { min: num(b.min)!, max: num(b.max)! } : null),
   };
   if (facts.timeline.kind === "unknown") facts.timeline.weeks = null;
@@ -50,6 +51,7 @@ export function normaliseFacts(raw: Record<string, unknown>, prior: CallFacts | 
     facts.rooms ??= prior.rooms;
     facts.currentState ??= prior.currentState;
     facts.budgetLakh ??= prior.budgetLakh;
+    facts.preferredStart ??= prior.preferredStart ?? null;
     if (facts.serviceType === "unknown") facts.serviceType = prior.serviceType;
     if (facts.intent === "unclear") facts.intent = prior.intent;
     if (facts.timeline.kind === "unknown") facts.timeline = prior.timeline;
@@ -66,6 +68,7 @@ export const EXTRACT_SYSTEM = `You read a phone conversation between a caller an
 - timeline, weeks counted from today: kind start_by = the date execution (building work) must START; complete_by = the date the project must be FINISHED, or the caller must move in / be operational; flexible = no deadline; unknown = not stated. A date for starting DESIGN or a planning step is not an execution start: ignore it and use the move-in or finish date. If the caller first states a deadline and later floats a different date, keep the first stated deadline.
   Examples: "We move in November, so maybe starting design from October" -> complete_by (the move-in), NOT start_by. "I want it done before Diwali" when the conversation says Diwali is three weeks away -> complete_by, weeks 3. "We'd like to start execution in January" -> start_by. "Done by March, no rush" -> complete_by. If the conversation itself says how far away a date is (for example "Diwali is three weeks away"), use that figure instead of your own calendar knowledge; otherwise work it out from today's date.
 - decisionMaker: self; authorised (spouse/partner who is not on the call has told them to go ahead); family_attending (e.g. parents who will attend the consultation and decide); research_only (just researching for someone else, no confirmation they will be involved); else unknown.
+- preferredStart: the consultation day and time the CALLER chose (for example "Thursday at 11 am"), as ISO 8601 with the +05:30 India offset, resolving words like "tomorrow" or "Thursday" from today's date (a weekday alone means the next such day). null if the caller has not chosen a time.
 - budgetMinRupees / budgetMaxRupees: ONLY if the caller states a budget figure, as whole rupees (1 lakh = 100000, so "1 to 1.5 lakh" is 100000 and 150000; a single figure goes in both). Otherwise null. Use whole numbers for every number field.
 Today is {TODAY}.`;
 
@@ -89,6 +92,7 @@ export const EXTRACT_SCHEMA = {
     decisionMaker: { type: "STRING", enum: DECISION_MAKERS },
     decisionMakerNote: { type: "STRING", nullable: true },
     // Whole rupees, not lakh: a decimal like 1.5 made the model loop on zeros.
+    preferredStart: { type: "STRING", nullable: true },
     budgetMinRupees: { type: "INTEGER", nullable: true },
     budgetMaxRupees: { type: "INTEGER", nullable: true },
   },
@@ -155,7 +159,7 @@ export class GeminiLlm implements LlmService {
 
   async extractFacts(transcript: TranscriptTurn[], prior: CallFacts | null) {
     const { json, usage } = await this.generate(
-      EXTRACT_SYSTEM.replace("{TODAY}", this.now().toISOString().slice(0, 10)),
+      EXTRACT_SYSTEM.replace("{TODAY}", `${new Date(this.now().getTime() + 330 * 60000).toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })} ${new Date(this.now().getTime() + 330 * 60000).toISOString().slice(0, 10)}`),
       asText(transcript),
       EXTRACT_SCHEMA,
     );

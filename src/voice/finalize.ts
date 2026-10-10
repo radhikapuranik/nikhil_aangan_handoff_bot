@@ -48,6 +48,12 @@ export async function finalizeCall(d: SessionDeps, f: Finished): Promise<CallRec
     decision = evaluate(rec.facts, { c1: 2, c2: 2, c3: 2, c5: 2 }, today);
   }
 
+  // Nothing about the project was captured (caller hung up, or the line was silent): not a lead.
+  const known = facts;
+  if (turns && decision?.verdict === "qualified" && known && known.serviceType === "unknown" && known.intent === "unclear" && !known.location && !known.sqft && known.timeline.kind === "unknown" && !known.existingClient) {
+    decision = null;
+  }
+
   if (turns) {
     audit = auditAgentTurns(turns, { verdict: decision?.verdict ?? "abandoned" });
     if (rec.bookingStatus === "booked" && decision && decision.verdict !== "qualified") audit.push("booked_despite_verdict");
@@ -60,6 +66,6 @@ export async function finalizeCall(d: SessionDeps, f: Finished): Promise<CallRec
     booking: { status: rec.bookingStatus === "not_applicable" ? "offered" : rec.bookingStatus, time: rec.bookingTime ?? undefined, ref: rec.bookingRef ?? undefined },
     usage, calendarCalls: 0, audit,
   });
-  if (reasonless) await d.repo.updateCall(done.id, { reasons: [turns ? "no caller speech in the transcript" : "call ended with no transcript and no tool activity"] });
+  if (reasonless) await d.repo.updateCall(done.id, { reasons: [turns ? "no enquiry details were captured in the call" : "call ended with no transcript and no tool activity"] });
   return done;
 }
